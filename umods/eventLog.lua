@@ -33,9 +33,6 @@ requiredMods = {}
 
 EventLog = class()
 
--- Common class fields to edit
-EventLog.maxHistory = 300
-
 -- Consts
 local SHORT_TEXT_HEIGHT = 19
 local FULL_TEXT_HEIGHT = 22
@@ -86,6 +83,8 @@ local scrollInnerHeight = 8
 local scrollPosition = 0
 local scrollSmooth = 0
 local filteredItems = {}
+-- The game crashes if rendering too many logs.  300 seems safe.
+EventLog.maxHistory = 300
 
 -- Class fields
 EventLog.items = {}
