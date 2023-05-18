@@ -104,6 +104,11 @@ local function firstToUpper(str)
     return (str:gsub("^%l", string.upper))
 end
 
+-- Returns whether the given string starts with the given prefix
+function string.startsWith(String,Start)
+   return (string.sub(String, 1, string.len(Start)) == Start)
+end
+
 -- I'm surprised these Gui functions aren't already part of the Gui system.  They are
 -- copy/paste/modify jobs of existing Gui functions.  I wouldn't have added spurious methods to the
 -- Gui system, but it seemed like the best way to access member fields self.guiScale, etc.
@@ -194,6 +199,15 @@ function EventLog:addLogItem(category, text, forceWhileResting)
 	self:calculateScrollUi()
 end
 
+function EventLog:removeLogItem()
+	if areArraysEquivalent(filteredItems[#filteredItems], self.items[#self.items]) then
+		table.remove(filteredItems)
+	end
+	local result = table.remove(self.items)
+	self:calculateScrollUi()
+	return result
+end
+
 -- This is called AFTER the party is generated as some filters are based on party names.
 function EventLog:init()
 	-- Start with the base filters
@@ -241,10 +255,7 @@ function EventLog:handleReciprocalItems(newItem)
 	for _,v in ipairs(RECIPROCAL_TYPES) do
 		if latestItem[2] == newItem[2]:gsub(v[1], v[2]) or
 		   latestItem[2] == newItem[2]:gsub(v[2], v[1]) then
-				if areArraysEquivalent(filteredItems[#filteredItems], self.items[#self.items]) then
-				   table.remove(filteredItems)
-				end
-				table.remove(self.items)
+			self:removeLogItem()
 			return true
 		end
 	end
@@ -469,18 +480,23 @@ end
 
 -- Get counting for the given item, including 0 if the item is nil
 local function getItemCount(item)
-	return item and item.count or ""
+	return item and item.count or 0
 end
 
--- Get the item state (type and count) of the mouseItem (or given item if given) as a single value
-local function getItemState(item)
-	item = item or gui:getMouseItem()
+-- Get the item state: type and count, of the given item (default: mouseItem) as a single value
+local function getItemState(item, noDefault)
+	if not noDefault then
+		item = item or gui:getMouseItem()
+	end
 	return { getItemName(item), getItemCount(item) }
 end
 
--- Return whether the mouse item state has changed from the given oldState
-local function mouseItemStateHasChanged(oldState)
-	local state = getItemState()
+-- Return whether the given item's state (default: mouseItem) has changed from the given oldState
+local function itemStateHasChanged(oldState, item, noDefault)
+	if not noDefault then
+		item = item or gui:getMouseItem()
+	end
+	local state = getItemState(item)
 	return state[1] ~= oldState[1] or state[2] ~= oldState[2]
 end
 
@@ -650,7 +666,7 @@ function CharSheet:slotClicked(owner, button, slot)
 
 	local result = orig_charSheet_slotClicked(self, owner, button, slot)
 
-	if mouseItemStateHasChanged(oldState) then
+	if itemStateHasChanged(oldState) then
 		local newState = getItemState()
 		local inSlot = getItemStateDisplayName(getLossBetweenItemStates(oldState, newState))
 		local inHand = getItemStateDisplayName(getLossBetweenItemStates(newState, oldState))
@@ -683,10 +699,26 @@ function ChestComponent:onClick()
 
 	local result = orig_chestComponent_onClick(self)
 
-	if mouseItemStateHasChanged(oldState) then
-		local newState = getItemState()
-		EventLog:addLogItem("ITEM",
-			getItemStateDisplayName(getLossBetweenItemStates(oldState, newState)) .. " used to unlock a chest.")
+	if itemStateHasChanged(oldState) then
+		local state = getItemState()
+		local loss = getLossBetweenItemStates(oldState, state)
+		EventLog:addLogItem("ITEM", getItemStateDisplayName(loss) .. " used to unlock a chest.")
+	end
+
+	return result
+end
+
+-- ITEM - consumed to unlock a lock
+local orig_lockComponent_onclick = LockComponent.onClick
+function LockComponent:onClick()
+	local oldState = getItemState()
+
+	local result = orig_lockComponent_onclick(self)
+
+	if itemStateHasChanged(oldState) then
+		local state = getItemState()
+		local loss = getLossBetweenItemStates(oldState, state)
+		EventLog:addLogItem("ITEM", getItemStateDisplayName(loss) .. " used to unlock a lock.")
 	end
 
 	return result
@@ -727,6 +759,49 @@ function ThrowAttackComponent:start(champion, slot)
 	return throwAttackComponent_start(self, champion, slot)
 end
 
+-- ITEM - shot a missile
+local orig_rangedAttackComponent_start = RangedAttackComponent.start
+function RangedAttackComponent:start(champion, slot)
+	local otherSlot = slot==1 and 2 or 1
+	local oldState = getItemState(champion:getItem(otherSlot), true)
+
+	local result = orig_rangedAttackComponent_start(self, champion, slot)
+
+	if itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
+		local state = getItemState(champion:getItem(otherSlot), true)
+		local loss = getLossBetweenItemStates(oldState, state)
+		EventLog:addLogItem("ITEM", champion.name .. " shot " .. getItemStateDisplayName(loss) .. ".")
+	end
+
+	return result
+end
+
+-- ITEM / COMBAT - shot a firearm AND gun jamming
+local orig_firearmAttackComponent_start = FirearmAttackComponent.start
+function FirearmAttackComponent:start(champion, slot)
+	local otherSlot = slot==1 and 2 or 1
+	local oldState = getItemState(champion:getItem(otherSlot), true)
+
+	local result = orig_firearmAttackComponent_start(self, champion, slot)
+
+	if champion:getItem(slot):getJammed() then
+		EventLog:addLogItem("COMBAT", champion.name .. "'s gun jammed.")
+	elseif itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
+		-- Firearm is fast enough that the attack log comes before the fired log.
+		-- We thus remove the attack log and re-add it AFTER the fired log
+		local attackLog = nil
+		if string.startsWith(EventLog.items[#EventLog.items][2], champion.name .. " attacked ") then
+			attackLog = EventLog:removeLogItem()
+		end
+		EventLog:addLogItem("ITEM", champion.name .. " shot " .. getItemDisplayName(champion:getItem(slot)) .. ".")
+		if attackLog then
+			EventLog:addLogItem(attackLog[1], attackLog[2])
+		end
+	end
+
+	return result
+end
+
 -- ITEM - taken
 local orig_itemComponent_onClickComponent = ItemComponent.onClickComponent
 function ItemComponent:onClickComponent()
@@ -734,24 +809,9 @@ function ItemComponent:onClickComponent()
 
 	local result = orig_itemComponent_onClickComponent(self)
 
-	if mouseItemStateHasChanged(oldState) then
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(getItemState()) .. " taken from the world.")
-	end
-
-	return result
-end
-
--- ITEM - used to unlock
-local orig_lockComponent_onclick = LockComponent.onClick
-function LockComponent:onClick()
-	local oldState = getItemState()
-
-	local result = orig_lockComponent_onclick(self)
-
-	if mouseItemStateHasChanged(oldState) then
-		local newState = getItemState()
-		EventLog:addLogItem("ITEM",
-			getItemStateDisplayName(getLossBetweenItemStates(oldState, newState)) .. " used to unlock a lock.")
+	if itemStateHasChanged(oldState) then
+		local state = getItemState()
+		EventLog:addLogItem("ITEM", getItemStateDisplayName(state) .. " taken from the world.")
 	end
 
 	return result
@@ -764,8 +824,42 @@ function SmallFishControllerComponent:onClick()
 
 	local result = orig_smallFishControllerComponent_onClick(self)
 
-	if mouseItemStateHasChanged(oldState) then
+	if itemStateHasChanged(oldState) then
 		EventLog:addLogItem("ITEM", "Silver roach taken from the world.")
+	end
+
+	return result
+end
+
+-- ITEM - auto-pickup (ammo, thrown items, etc).  Each item is picked up individually, but a
+-- collective log is wanted ("x picked up y (2)", not "x picked up y \n x picked up y").  So we
+-- gather and combine pick up actions.
+local autoPickupHappening = false
+local autoPickupCounter = { {"", 0}, {"", 0}, {"", 0}, {"", 0} }
+local orig_partyComponent_pickUpAmmo = PartyComponent.pickUpAmmo
+function PartyComponent:pickUpAmmo()
+	autoPickupCounter = { {"", 0}, {"", 0}, {"", 0}, {"", 0} }
+	autoPickupHappening = true
+
+	local result = orig_partyComponent_pickUpAmmo(self)
+
+	autoPickupHappening = false
+	-- log all auto-pickups
+	for i = 1,4 do
+		if autoPickupCounter[i][2] ~= 0 then
+			EventLog:addLogItem("ITEM", self.champions[i].name .. " picked up " .. getItemStateDisplayName(autoPickupCounter[i]))
+		end
+	end
+
+	return result
+end
+local orig_champion_autoPickUp = Champion.autoPickUp
+function Champion:autoPickUp(item)
+	local result = orig_champion_autoPickUp(self, item)
+
+	if result == true then
+		autoPickupCounter[self.championIndex][1] = getItemName(item)
+		autoPickupCounter[self.championIndex][2] = autoPickupCounter[self.championIndex][2] + 1
 	end
 
 	return result
@@ -778,7 +872,7 @@ function SocketComponent:onClick()
 
 	local result = orig_socketComponent_onClick(self)
 
-	if mouseItemStateHasChanged(oldState) then
+	if itemStateHasChanged(oldState) then
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " placed in " .. self.go.arch.name .. ".")
 	end
 
@@ -792,7 +886,7 @@ function SurfaceComponent:onClick(button, x, y)
 
 	local result = orig_surfaceComponent_onClick(self, button, x, y)
 
-	if mouseItemStateHasChanged(oldState) then
+	if itemStateHasChanged(oldState) then
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " placed on " .. self.go.arch.name .. ".")
 	end
 
@@ -807,8 +901,10 @@ function CraftPotionComponent:brewPotion(champion)
 
 	local result = orig_craftPotionComponent_brewPotion(self, champion)
 
-	if mouseItemStateHasChanged(oldState) then
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(getLossBetweenItemStates(getItemState(), oldState)) .. " brewed.")
+	if itemStateHasChanged(oldState) then
+		local state = getItemState()
+		local gain = getLossBetweenItemStates(state, oldState)
+		EventLog:addLogItem("ITEM", getItemStateDisplayName(gain) .. " brewed.")
 	else
 		-- Look for a reachable item that wasn't there before
 		local newGroundItems = getPartyReachableItems()
@@ -953,7 +1049,7 @@ function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, 
 
 	if attackerName ~= nil then
 		local attackText = (heading == "Backstab") and "backstabbed" or (heading == "Critical") and "criticaled" or "attacked"
-		logMonsterHpChanges(oldState, self, attackerName .. " " .. dualWieldText .. " " .. attackText .. " $name" .. "... $change damage.", true, "COMBAT", isImmune)
+		logMonsterHpChanges(oldState, self, attackerName .. dualWieldText .. " " .. attackText .. " $name" .. "... $change damage.", true, "COMBAT", isImmune)
 	end
 
 	return result
@@ -970,18 +1066,6 @@ function Champion:damage(dmg, damageType)
 		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT")
 	end
 	
-	return result
-end
-
--- COMBAT - gun jamming
-local orig_firearmAttackComponent_start = FirearmAttackComponent.start
-function FirearmAttackComponent:start(champion, slot)
-	local result = orig_firearmAttackComponent_start(self, champion, slot)
-
-	if champion:getItem(slot):getJammed() then
-		EventLog:addLogItem("COMBAT", champion.name .. "'s gun jammed.")
-	end
-
 	return result
 end
 
