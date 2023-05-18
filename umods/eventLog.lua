@@ -67,7 +67,7 @@ local SCROLL_TEXT_OFFSET_Y = 19
 local CATEGORY_WIDTH = 86
 local BASE_FILTERS = { "EFFECT", "ACTION", "ITEM", "STATS", "ALL", "COMBAT" }
 local INDEX_OF_ALL_FILTER = 5
-local RECIPROCAL_TYPES = { { "taken from", "given to" } }
+local RECIPROCAL_TYPES = { { "taken from", "given to" }, { "held in", "removed from" }, { "worn on", "removed from" } }
 
 -- Gui images
 local imagePath = "assets/textures/gui/gui_items.tga"
@@ -87,7 +87,76 @@ local filteredItems = {}
 -- The game crashes if rendering too many logs.  300 appears safe (never crashed under ~340).
 EventLog.maxHistory = 300
 
--- Class fields
+
+-----------------------
+-- HELPER FUNCTIONS --
+-----------------------
+local function areArraysEquivalent(a1, a2)
+	if #a1 ~= #a2 then return false end
+	for i = 1, #a1 do
+		if a1[i] ~= a2[i] then return false end
+	end
+	return true
+end
+
+-- Capitalize the first letter of the string
+local function firstToUpper(str)
+    return (str:gsub("^%l", string.upper))
+end
+
+-- I'm surprised these Gui functions aren't already part of the Gui system.  They are
+-- copy/paste/modify jobs of existing Gui functions.  I wouldn't have added spurious methods to the
+-- Gui system, but it seemed like the best way to access member fields self.guiScale, etc.
+
+-- Draw a gui item with a custom destination size
+function Gui:drawGuiItem_scaled(item, x, y, dstWidth, dstHeight, color)
+	color = color or Color.White
+	if item.offsetX then x = x + item.offsetX end
+	if item.offsetY then y = y + item.offsetY end
+
+	x = x * self.guiScale + self.guiBiasX
+	y = y * self.guiScale + self.guiBiasY
+
+	dstWidth = dstWidth * self.guiScale
+	dstHeight = dstHeight * self.guiScale
+
+	if not item.texture then
+		item.texture = RenderableTexture.load(item.image)
+	end
+
+	ImmediateMode.drawImage(item.texture, x, y, item.x, item.y, item.width, item.height, dstWidth, dstHeight, color)
+end
+
+-- Draw a combo box with a custom destination width
+function Gui:comboBox_customWidth(id, x, y, width, value, choices, style, tooltip)
+	local height = 20
+	local leftSideOffset = 30 * width / 180 -- adjust the "left-button" size to match the width
+
+	gui:drawGuiItem_scaled(GuiItem.ComboBox, x-leftSideOffset, y, width, height)
+	if gui:buttonLogic(id, x-leftSideOffset, y, width, height, nil, tooltip) then
+		local mx,my = sys.mousePos()
+		if mx < x then
+			-- left
+			value = iff(value > 1, value - 1, #choices)
+		else
+			-- right
+			value = iff(value < #choices, value + 1, 1)
+		end
+		soundSystem:playSound2D("click_down")
+	end
+
+	local font = FontType.PalatinoSmall
+	local color = Color.White
+	if style == "disabled" then color = {100,100,100,255} end
+	gui:drawTextCentered(choices[value], x + width/2 - leftSideOffset, y + 15, font, color)
+
+	return value
+end
+
+
+-----------
+-- Class --
+-----------
 EventLog.items = {}
 EventLog.isUiMaximized = false
 EventLog.currentFilterIndex = INDEX_OF_ALL_FILTER
@@ -300,73 +369,6 @@ function EventLog:drawMaximizedUi()
 
 	-- End the scroll area
 	gui:endScrollArea()
-end
-
-
------------------------
--- HELPER FUNCTIONS --
------------------------
-
-local function areArraysEquivalent(a1, a2)
-	if #a1 ~= #a2 then return false end
-	for i = 1, #a1 do
-		if a1[i] ~= a2[i] then return false end
-	end
-	return true
-end
-
--- Capitalize the first letter of the string
-local function firstToUpper(str)
-    return (str:gsub("^%l", string.upper))
-end
-
--- I'm surprised these Gui functions aren't already part of the Gui system.  They are
--- copy/paste/modify jobs of existing Gui functions.  I wouldn't have added spurious methods to the
--- Gui system, but it seemed like the best way to access member fields self.guiScale, etc.
-
--- Draw a gui item with a custom destination size
-function Gui:drawGuiItem_scaled(item, x, y, dstWidth, dstHeight, color)
-	color = color or Color.White
-	if item.offsetX then x = x + item.offsetX end
-	if item.offsetY then y = y + item.offsetY end
-
-	x = x * self.guiScale + self.guiBiasX
-	y = y * self.guiScale + self.guiBiasY
-	
-	dstWidth = dstWidth * self.guiScale
-	dstHeight = dstHeight * self.guiScale
-
-	if not item.texture then
-		item.texture = RenderableTexture.load(item.image)
-	end
-
-	ImmediateMode.drawImage(item.texture, x, y, item.x, item.y, item.width, item.height, dstWidth, dstHeight, color)
-end
-
--- Draw a combo box with a custom destination width
-function Gui:comboBox_customWidth(id, x, y, width, value, choices, style, tooltip)
-	local height = 20
-	local leftSideOffset = 30 * width / 180 -- adjust the "left-button" size to match the width
-	
-	gui:drawGuiItem_scaled(GuiItem.ComboBox, x-leftSideOffset, y, width, height)
-	if gui:buttonLogic(id, x-leftSideOffset, y, width, height, nil, tooltip) then
-		local mx,my = sys.mousePos()
-		if mx < x then
-			-- left
-			value = iff(value > 1, value - 1, #choices)
-		else
-			-- right
-			value = iff(value < #choices, value + 1, 1)
-		end
-		soundSystem:playSound2D("click_down")
-	end
-	
-	local font = FontType.PalatinoSmall
-	local color = Color.White
-	if style == "disabled" then color = {100,100,100,255} end
-	gui:drawTextCentered(choices[value], x + width/2 - leftSideOffset, y + 15, font, color)
-
-	return value
 end
 
 
@@ -629,6 +631,8 @@ function Champion:addToBackpack(item, autoEquip)
 	return orig_champion_addToBackpack(self, item, autoEquip)
 end
 
+local SLOT_NAMES = { "right hand", "left hand", "head", "torso", "legs", "feet", "back", "neck", "hands", "wrist" }
+
 -- ITEM - added to or removed from item slot
 local orig_charSheet_slotClicked = CharSheet.slotClicked
 function CharSheet:slotClicked(owner, button, slot)
@@ -642,10 +646,20 @@ function CharSheet:slotClicked(owner, button, slot)
 		local inHand = getItemStateDisplayName(getLossBetweenItemStates(newState, oldState))
 		local championName = owner.stats and owner.name or self.champion.name -- Complicated by containers
 		if inSlot ~= "" then
-			EventLog:addLogItem("ITEM", inSlot .. " given to " .. championName .. ".")
+			if slot <= 2 then
+				EventLog:addLogItem("ITEM", inSlot .. " held in " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+			elseif slot <= #SLOT_NAMES then
+				EventLog:addLogItem("ITEM", inSlot .. " worn on " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+			else
+				EventLog:addLogItem("ITEM", inSlot .. " given to " .. championName .. ".")
+			end
 		end
 		if inHand ~= "" then
-			EventLog:addLogItem("ITEM", inHand .. " taken from " .. championName .. ".")
+			if slot <= #SLOT_NAMES then
+				EventLog:addLogItem("ITEM", inHand .. " removed from " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+			else
+				EventLog:addLogItem("ITEM", inHand .. " taken from " .. championName .. ".")
+			end
 		end
 	end
 
@@ -906,12 +920,12 @@ function ItemComponent:projectileHitEntity(target)
 			message = "$name hit by " .. getItemDisplayName(self) .. "... " .. damageText
 		else
 			category = "COMBAT"
-			message = attackerName .. " attacked by $name... " .. damageText
+			message = attackerName .. " attacked $name... " .. damageText
 		end
 		if target.monster then
-			logMonsterHpChanges(oldState, target.monster, message, true, "EFFECT", true)
+			logMonsterHpChanges(oldState, target.monster, message, true, category, true)
 		elseif target.party then
-			logPartyHpStateChanges(oldState, message, true, "EFFECT", true)
+			logPartyHpStateChanges(oldState, message, true, category, true)
 		end
 	end
 
