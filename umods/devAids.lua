@@ -1,5 +1,8 @@
 DEV_MODE = true
 
+-- The script with this name will be loaded as a umod, but with all locals globalized
+DEV_SCRIPT = ""
+
 g = g or {}
 Config.g = g
 Config._G = _G
@@ -26,4 +29,13 @@ function printKeys(val, page, includeValues)
 			end
 		end
 	end
+end
+
+-- load the DEV_SCRIPT into Grimrock 2
+local scriptFile = io.open(config.documentsFolder .. "/mods/" .. DEV_SCRIPT .. ".lua")
+if scriptFile ~= nil then
+	local scriptText = scriptFile:read("*all")
+	scriptFile:close()
+	scriptText = scriptText:gsub("\nlocal", "\n")
+	loadstring(scriptText)()
 end
