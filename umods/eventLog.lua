@@ -273,8 +273,10 @@ function EventLog:calculateScrollUi(forceSnapToBottom)
 end
 
 -- Called each frame by the modified GUI system
-function EventLog:drawUi()
-	ImmediateMode.beginDraw()
+function EventLog:drawUi(setupImmediateMode)
+	if setupImmediateMode then
+		ImmediateMode.beginDraw()
+	end
 
 	-- ALWAYS draw the minimized ui
 	self:drawMinimizedUi()
@@ -284,7 +286,9 @@ function EventLog:drawUi()
 		self:drawMaximizedUi()
 	end
 
-	ImmediateMode.endDraw()
+	if setupImmediateMode then
+		ImmediateMode.endDraw()
+	end
 end
 
 function EventLog:drawMinimizedUi()
@@ -379,8 +383,14 @@ end
 -- Overridden to call eventlog's ui rendering
 local orig_gui_draw = Gui.draw
 function Gui:draw()
-	EventLog:drawUi() -- Draw the eventlog gui
+	EventLog:drawUi(true) -- Draw EventLog before the rest so that tooltips show over it
 	return orig_gui_draw(self)
+end
+local orig_pauseMenu_update = PauseMenu.update
+function PauseMenu:update()
+	local result = orig_pauseMenu_update(self)
+	EventLog:drawUi() -- Draw EventLog after the rest so that it's on top of the dimmer
+	return result
 end
 
 -- These overrides are all to populate the filters based on champion names
@@ -953,12 +963,11 @@ end
 local orig_champion_damage = Champion.damage
 function Champion:damage(dmg, damageType)
 	local oldState = getPartyHpState()
-	local isImmune = (self:getResistance(damageType) == "immune")
 
 	local result = orig_champion_damage(self, dmg, damageType)
 
 	if attackerName ~= nil then
-		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT", isImmune)
+		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT")
 	end
 	
 	return result
