@@ -67,6 +67,7 @@ local SCROLL_TEXT_OFFSET_Y = 19
 local CATEGORY_WIDTH = 86
 local BASE_FILTERS = { "EFFECT", "ACTION", "ITEM", "STATS", "ALL", "COMBAT" }
 local INDEX_OF_ALL_FILTER = 5
+local RECIPROCAL_TYPES = { { "taken from", "given to" } }
 
 -- Gui images
 local imagePath = "assets/textures/gui/gui_items.tga"
@@ -83,7 +84,7 @@ local scrollInnerHeight = 8
 local scrollPosition = 0
 local scrollSmooth = 0
 local filteredItems = {}
--- The game crashes if rendering too many logs.  300 seems safe.
+-- The game crashes if rendering too many logs.  300 appears safe (never crashed under ~340).
 EventLog.maxHistory = 300
 
 -- Class fields
@@ -94,25 +95,37 @@ EventLog.filters = {}
 
 -- Adds a new item to the event log
 function EventLog:addLogItem(category, text, forceWhileResting)
-	-- Don't accept log items unless filters are setup (filterung new items without a filter crashes)
+	-- Don't accept items unless filters are setup (filtering new items without a filter crashes)
 	if #self.filters == 0 then return end
 
-	-- Block logs while resting (except for logs ABOUT resting... and some other stuff, like hungry)
+	-- Block most items while resting
 	if party.resting and not forceWhileResting then return end
 
+	local newItem = { category, text }
+
+	-- Check for items that undo the prior item ("taken from" & "given to" for example)
+	if self:handleReciprocalItems(newItem) then
+		return
+	end
+
 	-- Add the new log item
-	self.items[#self.items + 1] = { category, text }
+	self.items[#self.items + 1] = newItem
+	if self:itemMatchesFilter(newItem, self.filters[self.currentFilterIndex]) then
+		filteredItems[#filteredItems+1] = newItem
+	end
 
 	-- Limit log item count to avoid memory bloat
 	while #self.items > self.maxHistory do
+		if areArraysEquivalent(filteredItems[1], self.items[1]) then
+			table.remove(filteredItems, 1)
+		end
 		table.remove(self.items, 1)
 	end
 
-	self:filterItems()
-	self:recalculateUiData()
+	self:calculateScrollUi()
 end
 
--- This is called AFTER the party is generated as some of the filters are written based on party names.
+-- This is called AFTER the party is generated as some filters are based on party names.
 function EventLog:init()
 	-- Start with the base filters
 	self.filters = {}
@@ -127,7 +140,7 @@ function EventLog:init()
 		end
 	end
 
-	-- Reset current filter to "All" and refilter items
+	-- Reset current filter to "All"
 	self.currentFilterIndex = INDEX_OF_ALL_FILTER
 
 	-- Clear items - change of party means change of game.  Don't keep items from old game
@@ -135,8 +148,42 @@ function EventLog:init()
 	filteredItems = {}
 end
 
--- Determine ui scrolling sizes
-function EventLog:recalculateUiData()
+function EventLog:itemMatchesFilter(item, filter)
+	if filter == "ALL" then
+		return true
+	elseif filter:sub(1,8) == "COMBAT: " then
+		-- Champion-specific combat filters - must be combat category and start with champion name
+		return (
+			item[1] == "COMBAT" and
+			item[2]:sub(1, filter:len()-8) == filter:sub(9))
+	else
+		return (item[1] == filter)
+	end
+end
+
+function EventLog:handleReciprocalItems(newItem)
+	local latestItem = self.items[#self.items]
+	if latestItem == nil then return false end -- If there aren't any items yet, do nothing
+
+	-- Reciprocal items have the same category and different messages
+	if newItem[1] ~= latestItem[1] or newItem[2] == latestItem[2] then return false end
+
+	-- check each reciprocal type
+	for _,v in ipairs(RECIPROCAL_TYPES) do
+		if latestItem[2] == newItem[2]:gsub(v[1], v[2]) or
+		   latestItem[2] == newItem[2]:gsub(v[2], v[1]) then
+				if areArraysEquivalent(filteredItems[#filteredItems], self.items[#self.items]) then
+				   table.remove(filteredItems)
+				end
+				table.remove(self.items)
+			return true
+		end
+	end
+
+	return false
+end
+
+function EventLog:calculateScrollUi(forceSnapToBottom)
 	-- Determine scroll height based on count of filtered items
 	scrollInnerHeight = #filteredItems * FULL_TEXT_HEIGHT + 8
 
@@ -145,9 +192,14 @@ function EventLog:recalculateUiData()
 	local isNearBottom = (absoluteScrollPosition > 0) and (absoluteScrollPosition < FULL_TEXT_HEIGHT * 4)
 
 	-- Snap to the bottom, if near it
-	if isNearBottom then
-		scrollPosition = (scrollInnerHeight - SCROLL_HEIGHT)
-		scrollSmooth = scrollPosition
+	if scrollInnerHeight > SCROLL_HEIGHT then
+		if isNearBottom or forceSnapToBottom then
+			scrollPosition = (scrollInnerHeight - SCROLL_HEIGHT)
+			scrollSmooth = scrollPosition
+		end
+	else
+		scrollPosition = 0
+		scrollSmooth = 0
 	end
 end
 
@@ -182,8 +234,6 @@ function EventLog:drawMinimizedUi()
 	-- Button (open)
 	if not self.isUiMaximized then
 		if gui:button("logOpen", GuiItem.logOpen,   MIN_WIN_LEFT + MIN_WIN_WIDTH + BUTTON_MAX_TOGGLE_OFFSET_X, MIN_WIN_BOTTOM - MIN_WIN_HEIGHT + PADDING + BUTTON_MAX_TOGGLE_OFFSET_Y, GuiItem.logOpenHover, "Open the event log") then
-			self:filterItems()
-			self:recalculateUiData()
 			self.isUiMaximized = true
 		end
 
@@ -209,8 +259,8 @@ function EventLog:drawMaximizedUi()
 	-- Button - clear
 	if gui:button("clear", GuiItem.ButtonClear, leftOffset + BUTTON_CLEAR_OFFSET_X, topOffset + BUTTON_CLEAR_OFFSET_Y, GuiItem.ButtonClearHover, "Clear the log.") then
 		self.items = {}
-		self:filterItems()
-		self:recalculateUiData()
+		filteredItems = {}
+		self:calculateScrollUi()
 	end
 
 	-- Button - copy
@@ -227,8 +277,13 @@ function EventLog:drawMaximizedUi()
 	local newFilterIndex = gui:comboBox_customWidth("logFilter", leftOffset + FILTER_OFFSET_X, topOffset + FILTER_OFFSET_Y, FILTER_WIDTH, self.currentFilterIndex, self.filters, nil, "Filter the log by event type.")
 	if newFilterIndex ~= self.currentFilterIndex then
 		self.currentFilterIndex = newFilterIndex
-		self:filterItems()
-		self:recalculateUiData()
+		filteredItems = {}
+		for i = 1, #self.items do
+			if self:itemMatchesFilter(self.items[i], self.filters[self.currentFilterIndex]) then
+				filteredItems[#filteredItems+1] = self.items[i]
+			end
+		end
+		self:calculateScrollUi(true)
 	end
 
 	-- Start a scroll area for the log items
@@ -247,32 +302,18 @@ function EventLog:drawMaximizedUi()
 	gui:endScrollArea()
 end
 
-function EventLog:filterItems()
-	filteredItems = {}
-	for i = 1, #self.items do
-		if self:itemMatchesFilter(self.items[i], self.filters[self.currentFilterIndex]) then
-			filteredItems[#filteredItems+1] = self.items[i]
-		end
-	end
-end
-
-function EventLog:itemMatchesFilter(item, filter)
-	if filter == "ALL" then
-		return true
-	elseif filter:sub(1,8) == "COMBAT: " then
-		return (
-			item[1] == "COMBAT" and
-			item[2]:sub(1, filter:len()-8) == filter:sub(9)
-		)
-	else
-		return (item[1] == filter)
-	end
-end
-
 
 -----------------------
 -- HELPER FUNCTIONS --
 -----------------------
+
+local function areArraysEquivalent(a1, a2)
+	if #a1 ~= #a2 then return false end
+	for i = 1, #a1 do
+		if a1[i] ~= a2[i] then return false end
+	end
+	return true
+end
 
 -- Capitalize the first letter of the string
 local function firstToUpper(str)
@@ -394,6 +435,9 @@ end
 -- Set to true during special xp monitors (killing mobs & digging chests) so that the generic xp+
 -- logs don't trigger
 local isMonitoringXp = false
+-- Since attack logs need info from multiple functions, these vars are set from those functions.
+local attackerName = nil
+local dualWieldText = ""
 
 -- Get a list of all reachable entities that are items
 function getPartyReachableItems()
@@ -439,11 +483,11 @@ local function getLossBetweenItemStates(oldState, newState)
 	end
 end
 
-local function getItemStateDisplayName(state)
+local function getItemStateDisplayName(state, skipTheCount)
 	if state[1] == "" or state[2] == 0 then
 		return ""
 	else
-		if state[2] == 1 then
+		if state[2] == 1 or skipTheCount then
 			return firstToUpper(state[1])
 		else
 			return firstToUpper(state[1]) .. " (" .. state[2] .. ")"
@@ -451,8 +495,8 @@ local function getItemStateDisplayName(state)
 	end
 end
 
-local function getItemDisplayName(item)
-	return getItemStateDisplayName(getItemState(item))
+local function getItemDisplayName(item, skipTheCount)
+	return getItemStateDisplayName(getItemState(item), skipTheCount)
 end
 
 -- Get the party's hp state as a single value
@@ -557,7 +601,8 @@ local function logMonsterHpChanges(oldState, monster, changeMessage, negate, cat
 	local state = getMonsterHpState(monster)
 	local change = math.floor(state - oldState)
 	if negate then change = -change end
-	if change > 0 or forceMessage then
+	if change ~= 0 or forceMessage then
+		if change == 0 then change = 0 end -- get rid of negative zero
 		EventLog:addLogItem(category, changeMessage:gsub("$name", firstToUpper(monster.go.arch.name)):gsub("$change", change))
 	end
 end
@@ -645,7 +690,7 @@ function ItemComponent:dragItemToThrowZone(x, y)
 	local result = orig_itemComponent_dragItemToThrowZone(self, x, y)
 
 	if result then
-		EventLog:addLogItem("ITEM", gameMode:getActiveChampion().name .. " threw " .. getItemStateDisplayName(oldState))
+		EventLog:addLogItem("ITEM", gameMode:getActiveChampion().name .. " threw " .. getItemStateDisplayName(oldState) .. ".")
 	end
 
 	return result
@@ -654,8 +699,7 @@ end
 -- ITEM - thrown using item's attack
 local throwAttackComponent_start = ThrowAttackComponent.start
 function ThrowAttackComponent:start(champion, slot)
-g.focus = self
-	EventLog:addLogItem("ITEM", champion.name .. " threw " .. getItemDisplayName(self.go.item))
+	EventLog:addLogItem("ITEM", champion.name .. " threw " .. getItemDisplayName(self.go.item, true) .. ".")
 	return throwAttackComponent_start(self, champion, slot)
 end
 
@@ -785,9 +829,6 @@ function MonsterComponent:shootProjectile(projectile, height, attackPower, origi
 	return result
 end
 
-local attackerName = nil
-local dualWieldText = nil
-
 -- COMBAT - Party melee attack.  Store attack data for the log created by "MonsterComponent:damage()".
 local orig_monsterComponent_onAttackedByChampion = MonsterComponent.onAttackedByChampion
 function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, dualWieldSide)
@@ -856,18 +897,25 @@ function ItemComponent:projectileHitEntity(target)
 
 	local result = orig_itemComponent_projectileHitEntity(self, target)
 
-	if attackerName then
-		attackerName = nil
-	else
-		-- Log non-attack projectile damage (traps, etc)
+	if result == "miss" or attackerName == nil then
 		local damageText = (result == "miss") and "miss." or "$change damage."
+		local category
+		local message
+		if attackerName == nil then
+			category = "EFFECT"
+			message = "$name hit by " .. getItemDisplayName(self) .. "... " .. damageText
+		else
+			category = "COMBAT"
+			message = attackerName .. " attacked by $name... " .. damageText
+		end
 		if target.monster then
-			logMonsterHpChanges(oldState, target.monster, "$name hit by " .. getItemDisplayName(self) .. "... " .. damageText, true, "EFFECT", true)
+			logMonsterHpChanges(oldState, target.monster, message, true, "EFFECT", true)
 		elseif target.party then
-			logPartyHpStateChanges(oldState, "$name hit by " .. getItemDisplayName(self) .. "... " .. damageText, true, "EFFECT", true)
+			logPartyHpStateChanges(oldState, message, true, "EFFECT", true)
 		end
 	end
 
+	attackerName = nil
 	return result
 end
 
@@ -875,12 +923,13 @@ end
 local orig_monsterComponent_damage = MonsterComponent.damage
 function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, heading)
 	local oldState = getMonsterHpState(self)
+	local isImmune = (self:getResistance(damageType) == "immune")
 
 	local result = orig_monsterComponent_damage(self, dmg, side, damageFlags, damageType, impactPos, heading)
 
 	if attackerName ~= nil then
 		local attackText = (heading == "Backstab") and "backstabbed" or (heading == "Critical") and "criticaled" or "attacked"
-		logMonsterHpChanges(oldState, self, attackerName .. " " .. dualWieldText .. " " .. attackText .. " $name" .. "... $change damage.", true, "COMBAT")
+		logMonsterHpChanges(oldState, self, attackerName .. " " .. dualWieldText .. " " .. attackText .. " $name" .. "... $change damage.", true, "COMBAT", isImmune)
 	end
 
 	return result
@@ -890,11 +939,12 @@ end
 local orig_champion_damage = Champion.damage
 function Champion:damage(dmg, damageType)
 	local oldState = getPartyHpState()
+	local isImmune = (self:getResistance(damageType) == "immune")
 
 	local result = orig_champion_damage(self, dmg, damageType)
 
 	if attackerName ~= nil then
-		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT")
+		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT", isImmune)
 	end
 	
 	return result
@@ -1210,6 +1260,6 @@ end
 -- STATS - stat increase
 local orig_champion_upgradeBaseStat = Champion.upgradeBaseStat
 function Champion:upgradeBaseStat(name, value)
-	EventLog:addLogItem("STATS", self.name .. "'s " .. name .. " raised to " .. (self.stats[name].current + value) .. ".")
+	EventLog:addLogItem("STATS", self.name .. "'s " .. name .. " raised.  " .. (self.stats[name].current ) .. " to " .. (self.stats[name].current + value) .. ".")
 	return orig_champion_upgradeBaseStat(self, name, value)
 end
