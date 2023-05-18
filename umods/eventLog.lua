@@ -169,7 +169,7 @@ EventLog.filters = {}
 
 -- Adds a new item to the event log
 function EventLog:addLogItem(category, text, forceWhileResting)
-	-- Don't accept items unless filters are setup (filtering new items without a filter crashes)
+	-- Don't accept items unless the real filters are setup
 	if #self.filters == 0 then return end
 
 	-- Block most items while resting
@@ -391,7 +391,7 @@ end
 -- OVERRIDES --
 ---------------
 
--- Overridden to call eventlog's ui rendering
+-- These are overridden to render eventlog's ui
 local orig_gui_draw = Gui.draw
 function Gui:draw()
 	EventLog:drawUi(true) -- Draw EventLog before the rest so that tooltips show over it
@@ -402,6 +402,13 @@ function PauseMenu:update()
 	local result = orig_pauseMenu_update(self)
 	EventLog:drawUi() -- Draw EventLog after the rest so that it's on top of the dimmer
 	return result
+end
+local orig_mainMenu_update = MainMenu.update
+function MainMenu:update()
+	if #EventLog.filters > 0 then
+		EventLog:drawUi()
+	end
+	return orig_mainMenu_update(self)
 end
 
 -- These overrides are all to populate the filters based on champion names
@@ -1111,8 +1118,11 @@ end
 -- EFFECT - condition added to champion
 local orig_champion_setCondition = Champion.setCondition
 function Champion:setCondition(name, value, forceLog)
-	-- Don't log level-up condition.  Also, poisoned is checked separately (to include the damage)
-	if name == "level_up" or (name == "poison" and value == true) then
+	-- Don't log level-up condition.  Poisoned is checked separately (to include the damage).
+	-- Empty champion name & condition="death" is a side-effect of game ending.  Don't log it.
+	if (name == "level_up") or
+	   (name == "poison" and value == true) or
+	   (self.name == "" and name == "dead") then
 		return orig_champion_setCondition(self, name, value)
 	end
 	local pre_condition = self:hasCondition(name)
