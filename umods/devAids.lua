@@ -32,7 +32,7 @@ function printKeys(val, page, includeValues)
 end
 
 -- load the DEV_SCRIPT into Grimrock 2
-local scriptFile = io.open(config.documentsFolder .. "/mods/" .. DEV_SCRIPT .. ".lua")
+local scriptFile = io.open(config.documentsFolder .. "/mods/" .. (DEV_SCRIPT or "") .. ".lua")
 if scriptFile ~= nil then
 	local scriptText = scriptFile:read("*all")
 	scriptFile:close()

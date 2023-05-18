@@ -110,8 +110,8 @@ function string.startsWith(String,Start)
 end
 
 -- I'm surprised these Gui functions aren't already part of the Gui system.  They are
--- copy/paste/modify jobs of existing Gui functions.  I wouldn't have added spurious methods to the
--- Gui system, but it seemed like the best way to access member fields self.guiScale, etc.
+-- modified versions of existing Gui functions.  I wouldn't have added spurious methods to the GUI
+-- system, except that seemed like the best way to access member fields self.guiScale, etc.
 
 -- Draw a gui item with a custom destination size
 function Gui:drawGuiItem_scaled(item, x, y, dstWidth, dstHeight, color)
@@ -166,6 +166,10 @@ EventLog.items = {}
 EventLog.isUiMaximized = false
 EventLog.currentFilterIndex = INDEX_OF_ALL_FILTER
 EventLog.filters = {}
+-- Events often trigger other events (attack -> dead -> xp).  Most events are logged after they're
+-- finished, so such chained events are logged in reverse order.  Stacking lets us reverse the order
+EventLog.eventStack = {}
+EventLog.eventStackLogItems = {}
 
 -- Adds a new item to the event log
 function EventLog:addLogItem(category, text, forceWhileResting)
@@ -176,6 +180,12 @@ function EventLog:addLogItem(category, text, forceWhileResting)
 	if party.resting and not forceWhileResting then return end
 
 	local newItem = { category, text }
+
+	-- If events are stacked, store this new log item for later (once event stacking is finished)
+	if #self.eventStack > 0 then
+		self.eventStackLogItems[#self.eventStackLogItems+1] = newItem
+		return
+	end
 
 	-- Check for items that undo the prior item ("taken from" & "given to" for example)
 	if self:handleReciprocalItems(newItem) then
@@ -197,6 +207,31 @@ function EventLog:addLogItem(category, text, forceWhileResting)
 	end
 
 	self:calculateScrollUi()
+end
+
+function EventLog:pushEvent(eventId)
+	self.eventStack[#self.eventStack+1] = eventId
+end
+
+function EventLog:popEvent(eventId)
+	local stackSize = #self.eventStack
+	if stackSize > 0 then
+		if self.eventStack[stackSize] == eventId then
+			table.remove(self.eventStack)
+		else
+			console:print(
+				"WARNING: EventLog event stack out of whack.  Resetting stack.  " +
+				"(Expected '" .. self.eventStack[stackSize] .. "', given '" .. eventId .. "')")
+			self.eventStack = {}
+		end
+		stackSize = #self.eventStack
+	end
+	if stackSize == 0 then
+		for i = #self.eventStackLogItems, 1, -1 do
+			self:addLogItem(self.eventStackLogItems[i][1], self.eventStackLogItems[i][2], true)
+		end
+		self.eventStackLogItems = {}
+	end
 end
 
 function EventLog:removeLogItem()
@@ -648,12 +683,14 @@ end
 -- ITEM - Consumed
 local orig_usableItemComponent_onUseItem = UsableItemComponent.onUseItem
 function UsableItemComponent:onUseItem(champion)
+	EventLog:pushEvent("orig_usableItemComponent_onUseItem")
 	local result = orig_usableItemComponent_onUseItem(self, champion)
 
 	if result then
 		EventLog:addLogItem("ITEM", champion.name .. " consumed " .. getItemDisplayName(self.go.item) .. ".")
 	end
 
+	EventLog:popEvent("orig_usableItemComponent_onUseItem")
 	return result
 end
 
@@ -671,6 +708,7 @@ local orig_charSheet_slotClicked = CharSheet.slotClicked
 function CharSheet:slotClicked(owner, button, slot)
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_charSheet_slotClicked")
 	local result = orig_charSheet_slotClicked(self, owner, button, slot)
 
 	if itemStateHasChanged(oldState) then
@@ -696,6 +734,7 @@ function CharSheet:slotClicked(owner, button, slot)
 		end
 	end
 
+	EventLog:popEvent("orig_charSheet_slotClicked")
 	return result
 end
 
@@ -704,6 +743,7 @@ local orig_chestComponent_onClick = ChestComponent.onClick
 function ChestComponent:onClick()
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_chestComponent_onClick")
 	local result = orig_chestComponent_onClick(self)
 
 	if itemStateHasChanged(oldState) then
@@ -712,6 +752,7 @@ function ChestComponent:onClick()
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(loss) .. " used to unlock a chest.")
 	end
 
+	EventLog:popEvent("orig_chestComponent_onClick")
 	return result
 end
 
@@ -720,6 +761,7 @@ local orig_lockComponent_onclick = LockComponent.onClick
 function LockComponent:onClick()
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_lockComponent_onclick")
 	local result = orig_lockComponent_onclick(self)
 
 	if itemStateHasChanged(oldState) then
@@ -728,6 +770,7 @@ function LockComponent:onClick()
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(loss) .. " used to unlock a lock.")
 	end
 
+	EventLog:popEvent("orig_lockComponent_onclick")
 	return result
 end
 
@@ -736,12 +779,14 @@ local orig_itemComponent_dropItemToFloor = ItemComponent.dropItemToFloor
 function ItemComponent:dropItemToFloor(x, y)
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_itemComponent_dropItemToFloor")
 	local result = orig_itemComponent_dropItemToFloor(self, x, y)
 
 	if result then
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " dropped.")
 	end
 
+	EventLog:popEvent("orig_itemComponent_dropItemToFloor")
 	return result
 end
 
@@ -750,12 +795,14 @@ local orig_itemComponent_dragItemToThrowZone = ItemComponent.dragItemToThrowZone
 function ItemComponent:dragItemToThrowZone(x, y)
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_itemComponent_dragItemToThrowZone")
 	local result = orig_itemComponent_dragItemToThrowZone(self, x, y)
 
 	if result then
 		EventLog:addLogItem("ITEM", gameMode:getActiveChampion().name .. " threw " .. getItemStateDisplayName(oldState) .. ".")
 	end
 
+	EventLog:popEvent("orig_itemComponent_dragItemToThrowZone")
 	return result
 end
 
@@ -772,6 +819,7 @@ function RangedAttackComponent:start(champion, slot)
 	local otherSlot = slot==1 and 2 or 1
 	local oldState = getItemState(champion:getItem(otherSlot), true)
 
+	EventLog:pushEvent("orig_rangedAttackComponent_start")
 	local result = orig_rangedAttackComponent_start(self, champion, slot)
 
 	if itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
@@ -780,6 +828,7 @@ function RangedAttackComponent:start(champion, slot)
 		EventLog:addLogItem("ITEM", champion.name .. " shot " .. getItemStateDisplayName(loss) .. ".")
 	end
 
+	EventLog:popEvent("orig_rangedAttackComponent_start")
 	return result
 end
 
@@ -789,23 +838,16 @@ function FirearmAttackComponent:start(champion, slot)
 	local otherSlot = slot==1 and 2 or 1
 	local oldState = getItemState(champion:getItem(otherSlot), true)
 
+	EventLog:pushEvent("orig_firearmAttackComponent_start")
 	local result = orig_firearmAttackComponent_start(self, champion, slot)
 
 	if champion:getItem(slot):getJammed() then
 		EventLog:addLogItem("COMBAT", champion.name .. "'s gun jammed.")
 	elseif itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
-		-- Firearm is fast enough that the attack log comes before the fired log.
-		-- We thus remove the attack log and re-add it AFTER the fired log
-		local attackLog = nil
-		if string.startsWith(EventLog.items[#EventLog.items][2], champion.name .. " attacked ") then
-			attackLog = EventLog:removeLogItem()
-		end
 		EventLog:addLogItem("ITEM", champion.name .. " shot " .. getItemDisplayName(champion:getItem(slot)) .. ".")
-		if attackLog then
-			EventLog:addLogItem(attackLog[1], attackLog[2])
-		end
 	end
 
+	EventLog:popEvent("orig_firearmAttackComponent_start")
 	return result
 end
 
@@ -814,6 +856,7 @@ local orig_itemComponent_onClickComponent = ItemComponent.onClickComponent
 function ItemComponent:onClickComponent()
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_itemComponent_onClickComponent")
 	local result = orig_itemComponent_onClickComponent(self)
 
 	if itemStateHasChanged(oldState) then
@@ -821,6 +864,7 @@ function ItemComponent:onClickComponent()
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(state) .. " taken from the world.")
 	end
 
+	EventLog:popEvent("orig_itemComponent_onClickComponent")
 	return result
 end
 
@@ -829,12 +873,14 @@ local orig_smallFishControllerComponent_onClick = SmallFishControllerComponent.o
 function SmallFishControllerComponent:onClick()
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_smallFishControllerComponent_onClick")
 	local result = orig_smallFishControllerComponent_onClick(self)
 
 	if itemStateHasChanged(oldState) then
 		EventLog:addLogItem("ITEM", "Silver roach taken from the world.")
 	end
 
+	EventLog:popEvent("orig_smallFishControllerComponent_onClick")
 	return result
 end
 
@@ -848,6 +894,7 @@ function PartyComponent:pickUpAmmo()
 	autoPickupCounter = { {"", 0}, {"", 0}, {"", 0}, {"", 0} }
 	autoPickupHappening = true
 
+	EventLog:pushEvent("orig_partyComponent_pickUpAmmo")
 	local result = orig_partyComponent_pickUpAmmo(self)
 
 	autoPickupHappening = false
@@ -858,10 +905,12 @@ function PartyComponent:pickUpAmmo()
 		end
 	end
 
+	EventLog:popEvent("orig_partyComponent_pickUpAmmo")
 	return result
 end
 local orig_champion_autoPickUp = Champion.autoPickUp
 function Champion:autoPickUp(item)
+	EventLog:pushEvent("orig_champion_autoPickUp")
 	local result = orig_champion_autoPickUp(self, item)
 
 	if result == true then
@@ -869,6 +918,7 @@ function Champion:autoPickUp(item)
 		autoPickupCounter[self.championIndex][2] = autoPickupCounter[self.championIndex][2] + 1
 	end
 
+	EventLog:popEvent("orig_champion_autoPickUp")
 	return result
 end
 
@@ -877,12 +927,14 @@ local orig_socketComponent_onClick = SocketComponent.onClick
 function SocketComponent:onClick()
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_socketComponent_onClick")
 	local result = orig_socketComponent_onClick(self)
 
 	if itemStateHasChanged(oldState) then
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " placed in " .. self.go.arch.name .. ".")
 	end
 
+	EventLog:popEvent("orig_socketComponent_onClick")
 	return result
 end
 
@@ -891,12 +943,14 @@ local orig_surfaceComponent_onClick = SurfaceComponent.onClick
 function SurfaceComponent:onClick(button, x, y)
 	local oldState = getItemState()
 
+	EventLog:pushEvent("orig_surfaceComponent_onClick")
 	local result = orig_surfaceComponent_onClick(self, button, x, y)
 
 	if itemStateHasChanged(oldState) then
 		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " placed on " .. self.go.arch.name .. ".")
 	end
 
+	EventLog:popEvent("orig_surfaceComponent_onClick")
 	return result
 end
 
@@ -906,6 +960,7 @@ function CraftPotionComponent:brewPotion(champion)
 	local oldState = getItemState()
 	local oldGroundItems = getPartyReachableItems()
 
+	EventLog:pushEvent("orig_craftPotionComponent_brewPotion")
 	local result = orig_craftPotionComponent_brewPotion(self, champion)
 
 	if itemStateHasChanged(oldState) then
@@ -932,6 +987,7 @@ function CraftPotionComponent:brewPotion(champion)
 		end
 	end
 
+	EventLog:popEvent("orig_craftPotionComponent_brewPotion")
 	return result
 end
 
@@ -962,6 +1018,7 @@ function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, d
 	attackerName = champion.name
 	dualWieldText = (dualWieldSide == 1) and " left" or (dualWieldSide == 2) and " right" or ""
 
+	EventLog:pushEvent("orig_monsterComponent_onAttackedByChampion")
 	local result = orig_monsterComponent_onAttackedByChampion(self, champion, weapon, attack, slot, dualWieldSide)
 
 	if result == "miss" then
@@ -969,6 +1026,7 @@ function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, d
 	end
 	attackerName = nil
 
+	EventLog:popEvent("orig_monsterComponent_onAttackedByChampion")
 	return result
 end
 
@@ -977,10 +1035,12 @@ local orig_monsterAttackComponent_attackParty = MonsterAttackComponent.attackPar
 function MonsterAttackComponent:attackParty()
 	attackerName = self.go.arch.name
 
+	EventLog:pushEvent("orig_monsterAttackComponent_attackParty")
 	local result = orig_monsterAttackComponent_attackParty(self)
 
 	attackerName = nil
 
+	EventLog:popEvent("orig_monsterAttackComponent_attackParty")
 	return result
 end
 
@@ -997,10 +1057,12 @@ function damageTile(map, x, y, direction, elevation, damageFlags, damageType, po
 		end
 	end
 
+	EventLog:pushEvent("orig_damageTime")
 	local result = orig_damageTime(map, x, y, direction, elevation, damageFlags, damageType, power, screenEffect, hitCallback, hitContext)
 
 	attackerName = nil
 
+	EventLog:popEvent("orig_damageTime")
 	return result
 end
 
@@ -1022,6 +1084,7 @@ function ItemComponent:projectileHitEntity(target)
 		end
 	end
 
+	EventLog:pushEvent("orig_itemComponent_projectileHitEntity")
 	local result = orig_itemComponent_projectileHitEntity(self, target)
 
 	if result == "miss" or attackerName == nil then
@@ -1041,8 +1104,9 @@ function ItemComponent:projectileHitEntity(target)
 			logPartyHpStateChanges(oldState, message, true, category, true)
 		end
 	end
-
 	attackerName = nil
+
+	EventLog:popEvent("orig_itemComponent_projectileHitEntity")
 	return result
 end
 
@@ -1052,6 +1116,7 @@ function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, 
 	local oldState = getMonsterHpState(self)
 	local isImmune = (self:getResistance(damageType) == "immune")
 
+	EventLog:pushEvent("orig_monsterComponent_damage")
 	local result = orig_monsterComponent_damage(self, dmg, side, damageFlags, damageType, impactPos, heading)
 
 	if attackerName ~= nil then
@@ -1059,6 +1124,7 @@ function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, 
 		logMonsterHpChanges(oldState, self, attackerName .. dualWieldText .. " " .. attackText .. " $name" .. "... $change damage.", true, "COMBAT", isImmune)
 	end
 
+	EventLog:popEvent("orig_monsterComponent_damage")
 	return result
 end
 
@@ -1067,12 +1133,14 @@ local orig_champion_damage = Champion.damage
 function Champion:damage(dmg, damageType)
 	local oldState = getPartyHpState()
 
+	EventLog:pushEvent("orig_champion_damage")
 	local result = orig_champion_damage(self, dmg, damageType)
 
 	if attackerName ~= nil then
 		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT")
 	end
 	
+	EventLog:popEvent("orig_champion_damage")
 	return result
 end
 
@@ -1080,13 +1148,15 @@ end
 local orig_monsterComponent_die = MonsterComponent.die
 function MonsterComponent:die(gainExp)
 	isMonitoringXp = true
-	EventLog:addLogItem("COMBAT", self.go.arch.name .. " died.")
 	local oldState = getPartyXpState()
 
+	EventLog:pushEvent("orig_monsterComponent_die")
 	local result = orig_monsterComponent_die(self, gainExp)
 
 	logPartyXpStateChanges(oldState)
 	isMonitoringXp = false
+	EventLog:popEvent("orig_monsterComponent_die")
+	EventLog:addLogItem("COMBAT", self.go.arch.name .. " died.")
 
 	return result
 end
@@ -1096,10 +1166,12 @@ local orig_champion_regainHealth = Champion.regainHealth
 function Champion:regainHealth(amount)
 	local oldState = getPartyHpState()
 
+	EventLog:pushEvent("orig_champion_regainHealth")
 	local result = orig_champion_regainHealth(self, amount)
 
 	logPartyHpStateChanges(oldState, "$name is healed for $change hp.")
 
+	EventLog:popEvent("orig_champion_regainHealth")
 	return result
 end
 
@@ -1108,10 +1180,12 @@ local orig_champion_regainEnergy = Champion.regainEnergy
 function Champion:regainEnergy(amount)
 	local oldState = getPartyEpState()
 
+	EventLog:pushEvent("orig_champion_regainEnergy")
 	local result = orig_champion_regainEnergy(self, amount)
 
 	logPartyEpStateChanges(oldState, "$name is energized for $change hp.")
 
+	EventLog:popEvent("orig_champion_regainEnergy")
 	return result
 end
 
@@ -1127,10 +1201,12 @@ function Champion:setCondition(name, value, forceLog)
 	end
 	local pre_condition = self:hasCondition(name)
 
+	EventLog:pushEvent("orig_champion_setCondition")
 	local result = orig_champion_setCondition(self, name, value)
 
 	if self:hasCondition(name) == pre_condition and not forceLog then
 		-- Nothing happened, don't log unless forced
+		EventLog:popEvent("orig_champion_setCondition")
 		return result
 	end
 	local conditionText
@@ -1161,6 +1237,7 @@ function Champion:setCondition(name, value, forceLog)
 		EventLog:addLogItem("EFFECT", self.name .. " no longer " .. conditionText .. ".", true)
 	end
 
+	EventLog:popEvent("orig_champion_setCondition")
 	return result
 end
 
@@ -1172,6 +1249,7 @@ function Champion:updateConditions()
 		pre_conditions[#pre_conditions+1] = name
 	end
 
+	EventLog:pushEvent("orig_champion_updateConditions")
 	local result = orig_champion_updateConditions(self)
 
 	for _,name in ipairs(pre_conditions) do
@@ -1190,6 +1268,7 @@ function Champion:updateConditions()
 		end
 	end	
 	
+	EventLog:popEvent("orig_champion_updateConditions")
 	return result
 end
 
@@ -1198,6 +1277,7 @@ local orig_monsterComponent_setCondition = MonsterComponent.setCondition
 function MonsterComponent:setCondition(condition, duration)
 	local pre_hasCondition = self:hasCondition(condition)
 
+	EventLog:pushEvent("orig_monsterComponent_setCondition")
 	local result = orig_monsterComponent_setCondition(self, condition, duration)
 
 	if not pre_hasCondition and self:hasCondition(condition) then
@@ -1207,6 +1287,7 @@ function MonsterComponent:setCondition(condition, duration)
 		EventLog:addLogItem("EFFECT", self.go.arch.name .. " was " .. condition .. ".")
 	end
 
+	EventLog:popEvent("orig_monsterComponent_setCondition")
 	return result
 end
 
@@ -1215,10 +1296,12 @@ local orig_partyComponent_updateDiving = PartyComponent.updateDiving
 function PartyComponent:updateDiving()
 	local oldState = getPartyHpState()
 
+	EventLog:pushEvent("orig_partyComponent_updateDiving")
 	local result = orig_partyComponent_updateDiving(self)
 
 	logPartyHpStateChanges(oldState, "$name is drowning... $change damage.", true)
 
+	EventLog:popEvent("orig_partyComponent_updateDiving")
 	return result
 end
 
@@ -1227,10 +1310,12 @@ local orig_partyComponent_onFallingImpact = PartyComponent.onFallingImpact
 function PartyComponent:onFallingImpact(velocity, distanceFallen)
 	local oldState = getPartyHpState()
 
+	EventLog:pushEvent("orig_partyComponent_onFallingImpact")
 	result = orig_partyComponent_onFallingImpact(self, velocity, distanceFallen)
 
 	logPartyHpStateChanges(oldState, "$name fell... $change damage.", true)
 
+	EventLog:popEvent("orig_partyComponent_onFallingImpact")
 	return result
 end
 
@@ -1239,10 +1324,12 @@ local orig_poisonCondition_tick = PoisonCondition.tick
 function PoisonCondition:tick(champion)
 	local oldState = getPartyHpState()
 
+	EventLog:pushEvent("orig_poisonCondition_tick")
 	local result = orig_poisonCondition_tick(self, champion)
 
 	logPartyHpStateChanges(oldState, "$name is poisoned... $change damage.", true)
 
+	EventLog:popEvent("orig_poisonCondition_tick")
 	return result
 end
 
@@ -1273,19 +1360,20 @@ function LeverComponent:toggle()
 	else
 		EventLog:addLogItem("ACTION", "Lever activated.")
 	end
-
 	return orig_leverComponent_toggle(self)
 end
 
 -- ACTION - Rest begun
 local orig_partyComponent_rest = PartyComponent.rest
 function PartyComponent:rest(text, timeMultiplier)
+	EventLog:pushEvent("orig_partyComponent_rest")
 	local result = orig_partyComponent_rest(self, text, timeMultiplier)
 
 	if party.resting then
 		EventLog:addLogItem("ACTION", "Resting.", true)
 	end
 
+	EventLog:popEvent("orig_partyComponent_rest")
 	return result
 end
 
@@ -1299,7 +1387,6 @@ function PartyComponent:wakeUp(restInterrupted)
 			EventLog:addLogItem("ACTION", "Rest ended.", true)
 		end
 	end
-
 	return orig_partyComponent_wakeUp(self, restInterrupted)
 end
 
@@ -1330,11 +1417,13 @@ function DiggingToolComponent:diggingFinished()
 	isMonitoringXp = true
 	local oldState = getPartyXpState()
 
+	EventLog:pushEvent("orig_diggingToolComponent_diggingFinished")
 	local result = orig_diggingToolComponent_diggingFinished(self)
 
 	logPartyXpStateChanges(oldState)
 	isMonitoringXp = false
 
+	EventLog:popEvent("orig_diggingToolComponent_diggingFinished")
 	return result
 end
 
@@ -1346,10 +1435,12 @@ function Champion:gainExp(xp)
 	end
 	local oldState = getPartyXpState()
 
+	EventLog:pushEvent("orig_champion_gainExp")
 	local result = orig_champion_gainExp(self, xp)
 
 	logPartyXpStateChanges(oldState)
 
+	EventLog:popEvent("orig_champion_gainExp")
 	return result
 end
 
@@ -1365,12 +1456,14 @@ local orig_champion_addTrait = Champion.addTrait
 function Champion:addTrait(name)
 	local pre_hasTrait = self:hasTrait(name)
 
+	EventLog:pushEvent("orig_champion_addTrait")
 	local result = orig_champion_addTrait(self, name)
 
 	if not pre_hasTrait and self:hasTrait(name) then
 		EventLog:addLogItem("STATS", self.name .. " learned " .. name .. " trait.")
 	end
 
+	EventLog:popEvent("orig_champion_addTrait")
 	return result
 end
 
