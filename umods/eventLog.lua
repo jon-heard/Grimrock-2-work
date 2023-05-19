@@ -13,17 +13,7 @@ description = [[This mod adds an in-game event log GUI to allow review of all in
 Made by Violgamba.]]
 version = "1.0"
 modifiedFields = {
-	"GuiItem", "Gui:draw", "GameMode:newGame", "GameMode:loadGame", "Champion:setEnabled",
-	"DungeonEditor:playPreview", "GameMode:keyPressed", "UsableItemComponent:onUseItem", "Champion:addToBackpack", "CharSheet:slotClicked",
-	"ChestComponent:onClick", "ItemComponent:dropItemToFloor", "ItemComponent:dragItemToThrowZone", "ThrowAttackComponent:start", "ItemComponent:onClickComponent",
-	"LockComponent:onClick", "SmallFishControllerComponent:onClick", "SocketComponent:onClick", "SurfaceComponent:onClick", "CraftPotionComponent:brewPotion",
-	"MonsterComponent:throwItem", "MonsterComponent:shootProjectile", "MonsterComponent:onAttackedByChampion", "MonsterAttackComponent:attackParty", "damageTile",
-	"ItemComponent:projectileHitEntity", "MonsterComponent:damage", "Champion:damage", "FirearmAttackComponent:start", "MonsterComponent:die",
-	"Champion:regainHealth", "Champion:regainEnergy", "Champion:setCondition", "Champion:updateConditions", "MonsterComponent:setCondition",
-	"PartyComponent:updateDiving", "PartyComponent:onFallingImpact", "PoisonCondition:tick", "ButtonComponent:onClick", "FloorTriggerComponent:activate",
-	"FloorTriggerComponent:deactivate", "LeverComponent:toggle", "PartyComponent:rest", "PartyComponent:wakeUp", "CrystalComponent:onClick",
-	"SecretComponent:activate", "Champion:levelUp", "DiggingToolComponent:diggingFinished", "Champion:gainExp", "Champion:trainSkill",
-	"Champion:addTrait", "Champion:upgradeBaseStat"
+	"GuiItem", "Gui:draw", "PauseMenu:update", "MainMenu:update", "GameMode:newGame", "GameMode:loadGame", "Champion:setEnabled", "DungeonEditor:playPreview", "GameMode:keyPressed", "UsableItemComponent:onUseItem", "Champion:addToBackpack", "CharSheet:slotClicked", "ChestComponent:onClick", "LockComponent:onClick", "ItemComponent:dropItemToFloor", "ItemComponent:dragItemToThrowZone", "ThrowAttackComponent:start", "RangedAttackComponent:start", "FirearmAttackComponent:start", "ItemComponent:onClickComponent", "SmallFishControllerComponent:onClick", "PartyComponent:pickUpAmmo", "Champion:autoPickUp", "SocketComponent:onClick", "SurfaceComponent:onClick", "CraftPotionComponent:brewPotion", "TileDamagerComponent:setCastByChampion", "MonsterComponent:throwItem", "MonsterComponent:shootProjectile", "MonsterComponent:onAttackedByChampion", "MonsterAttackComponent:attackParty", "damageTile", "ItemComponent:projectileHitEntity", "MonsterComponent:damage", "Champion:damage", "MonsterComponent:die", "Champion:regainHealth", "Champion:regainEnergy", "Champion:setCondition", "Champion:updateConditions", "MonsterComponent:setCondition", "PartyComponent:updateDiving", "PartyComponent:onFallingImpact", "PoisonCondition:tick", "ButtonComponent:onClick", "FloorTriggerComponent:activate", "FloorTriggerComponent:deactivate", "LeverComponent:toggle", "PartyComponent:rest", "PartyComponent:wakeUp", "DiggingToolComponent:onPartyWakeUp", "RopeToolComponent:onPartyWakeUp", "CrystalComponent:onClick", "SecretComponent:activate", "Champion:levelUp", "DiggingToolComponent:diggingFinished", "Champion:gainExp", "Champion:trainSkill", "Champion:addTrait", "Champion:upgradeBaseStat"
 }
 overwrittenFields = { "TileDamagerComponent:setCastByChampion" }
 compatibilityOverrides = {}
@@ -109,7 +99,7 @@ function string.startsWith(String,Start)
    return (string.sub(String, 1, string.len(Start)) == Start)
 end
 
--- I'm surprised these Gui functions aren't already part of the Gui system.  They are
+-- I'm surprised the following Gui functions aren't already part of the Gui system.  They are
 -- modified versions of existing Gui functions.  I wouldn't have added spurious methods to the GUI
 -- system, except that seemed like the best way to access member fields self.guiScale, etc.
 
@@ -503,6 +493,9 @@ local isMonitoringXp = false
 -- Since attack logs need info from multiple functions, these vars are set from those functions.
 local attackerName = nil
 local dualWieldText = ""
+-- The resting mechanism is used for actions such as digging and rope climbing.  Logging should
+-- be handled differently in these cases.
+local currentRestIsForAction = false
 
 -- Get a list of all reachable entities that are items
 function getPartyReachableItems()
@@ -715,7 +708,13 @@ function CharSheet:slotClicked(owner, button, slot)
 		local newState = getItemState()
 		local inSlot = getItemStateDisplayName(getLossBetweenItemStates(oldState, newState))
 		local inHand = getItemStateDisplayName(getLossBetweenItemStates(newState, oldState))
-		local championName = owner.stats and owner.name or self.champion.name -- Complicated by containers
+		local championName = owner.name
+		if not owner.stats then
+			-- User put item into a container.  Grab real champion name
+			championName = self.champion.name
+			-- Avoid the named slot indices.
+			slot = 99
+		end
 		if inSlot ~= "" then
 			if slot <= 2 then
 				EventLog:addLogItem("ITEM", inSlot .. " held in " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
@@ -1363,14 +1362,20 @@ function LeverComponent:toggle()
 	return orig_leverComponent_toggle(self)
 end
 
--- ACTION - Rest begun
+-- ACTION - Rest and rest-based actions begun
 local orig_partyComponent_rest = PartyComponent.rest
 function PartyComponent:rest(text, timeMultiplier)
 	EventLog:pushEvent("orig_partyComponent_rest")
 	local result = orig_partyComponent_rest(self, text, timeMultiplier)
 
 	if party.resting then
-		EventLog:addLogItem("ACTION", "Resting.", true)
+		currentRestIsForAction = (text ~= nil)
+		if not currentRestIsForAction then
+			EventLog:addLogItem("ACTION", "Resting.", true)
+		else
+			-- The non-resting messages use "...".  Remove that and use "." instead.
+			EventLog:addLogItem("ACTION", text:gsub("%.%.%.", "") .. ".", true)
+		end
 	end
 
 	EventLog:popEvent("orig_partyComponent_rest")
@@ -1380,7 +1385,7 @@ end
 -- ACTION - Rest ended
 local orig_partyComponent_wakeUp = PartyComponent.wakeUp
 function PartyComponent:wakeUp(restInterrupted)
-	if party.resting then
+	if party.resting and not currentRestIsForAction then
 		if restInterrupted then
 			EventLog:addLogItem("ACTION", "Rest interrupted.", true)
 		else
@@ -1388,6 +1393,24 @@ function PartyComponent:wakeUp(restInterrupted)
 		end
 	end
 	return orig_partyComponent_wakeUp(self, restInterrupted)
+end
+
+-- ACTION - Shovel use interrupted
+local orig_diggingToolComponent_onPartyWakeUp = DiggingToolComponent.onPartyWakeUp
+function DiggingToolComponent:onPartyWakeUp(interrupted)
+	if not self.diggingCounter or self.diggingCounter < 7 then
+		EventLog:addLogItem("ACTION", "Dig interrupted.", true)
+	end
+	orig_diggingToolComponent_onPartyWakeUp(self, interrupted)
+end
+
+-- ACTION - Rope use interrupted
+local orig_ropeToolComponent_onPartyWakeUp = RopeToolComponent.onPartyWakeUp
+function RopeToolComponent:onPartyWakeUp(interrupted)
+	if not self.counter or self.counter < 7 then
+		EventLog:addLogItem("ACTION", "Climb interrupted.", true)
+	end
+	orig_ropeToolComponent_onPartyWakeUp(self, interrupted)
 end
 
 -- ACTION - Used healing crystal
