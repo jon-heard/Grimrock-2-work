@@ -487,9 +487,16 @@ end
 ---------------------------------
 -- EVENTS TO LOG - HELPER FNCS --
 ---------------------------------
+-- Which stats to log changes for
+local STATS_CHANGES_TO_LOG = {
+	"max_health", "max_energy", "strength", "dexterity", "vitality", "willpower", "resist_fire",
+	"resist_shock", "resist_poison", "resist_cold"
+}
 -- Set to true during special xp monitors (killing mobs & digging chests) so that the generic xp+
 -- logs don't trigger
 local isMonitoringXp = false
+-- True during normal skill point count changes.  Allows logging unusual skill point bonuses (tome).
+local isNormalSkillPointChange = false
 -- Since attack logs need info from multiple functions, these vars are set from those functions.
 local attackerName = nil
 local dualWieldText = ""
@@ -860,7 +867,7 @@ function ItemComponent:onClickComponent()
 
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(state) .. " taken from the world.")
+		EventLog:addLogItem("ITEM", getItemStateDisplayName(state) .. " taken.")
 	end
 
 	EventLog:popEvent("orig_itemComponent_onClickComponent")
@@ -876,7 +883,7 @@ function SmallFishControllerComponent:onClick()
 	local result = orig_smallFishControllerComponent_onClick(self)
 
 	if itemStateHasChanged(oldState) then
-		EventLog:addLogItem("ITEM", "Silver roach taken from the world.")
+		EventLog:addLogItem("ITEM", "Silver roach taken.")
 	end
 
 	EventLog:popEvent("orig_smallFishControllerComponent_onClick")
@@ -1015,7 +1022,7 @@ end
 local orig_monsterComponent_onAttackedByChampion = MonsterComponent.onAttackedByChampion
 function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, dualWieldSide)
 	attackerName = champion.name
-	dualWieldText = (dualWieldSide == 1) and " left" or (dualWieldSide == 2) and " right" or ""
+	dualWieldText = (dualWieldSide == 1) and " right" or (dualWieldSide == 2) and " left" or ""
 
 	EventLog:pushEvent("orig_monsterComponent_onAttackedByChampion")
 	local result = orig_monsterComponent_onAttackedByChampion(self, champion, weapon, attack, slot, dualWieldSide)
@@ -1430,8 +1437,33 @@ end
 -- STATS - levelup
 local orig_champion_levelUp = Champion.levelUp
 function Champion:levelUp()
+	isNormalSkillPointChange = true
 	EventLog:addLogItem("STATS", self.name .. " leveled to " .. (self.level+1) .. ".")
-	return orig_champion_levelUp(self)
+
+	local result = orig_champion_levelUp(self)
+
+	isNormalSkillPointChange = false
+
+	return result
+end
+
+-- STATS - add skill point
+local orig_champion_addSkillPoints = Champion.addSkillPoints
+function Champion:addSkillPoints(amount)
+	if not isNormalSkillPointChange then -- Don't log levelups and slotting skill points
+		local plural_s = amount == 1 and "" or "s"
+		EventLog:addLogItem("STATS", self.name .. " gained " .. amount .. " skill point" .. plural_s .. ".")
+	end
+	return orig_champion_addSkillPoints(self, amount)
+end
+local orig_charSheet_skillsTab = CharSheet.skillsTab
+
+-- Simply block skill point logs while slotting and unslotting skills
+function CharSheet:skillsTab(x, y)
+	isNormalSkillPointChange = true
+	local result = orig_charSheet_skillsTab(self, x, y)
+	isNormalSkillPointChange = false
+	return result
 end
 
 -- STATS - Experience from digging up chest
@@ -1470,8 +1502,14 @@ end
 -- STATS - skill increase
 local orig_champion_trainSkill = Champion.trainSkill
 function Champion:trainSkill(name, times, spendPoints)
-	EventLog:addLogItem("STATS", self.name .. " gained " .. times .. " in " .. name .. " skill.")
-	return orig_champion_trainSkill(self, name, times, spendPoints)
+	isNormalSkillPointChange = true
+	EventLog:addLogItem("STATS", self.name .. " gained " .. times .. " in " .. name:gsub("_", " ") .. " skill.")
+
+	local result = orig_champion_trainSkill(self, name, times, spendPoints)
+
+	isNormalSkillPointChange = false
+
+	return result
 end
 
 -- STATS - gain trait
@@ -1483,16 +1521,25 @@ function Champion:addTrait(name)
 	local result = orig_champion_addTrait(self, name)
 
 	if not pre_hasTrait and self:hasTrait(name) then
-		EventLog:addLogItem("STATS", self.name .. " learned " .. name .. " trait.")
+		local trait = Skill.getTrait(name)
+		if name == "nightstalker" then
+			EventLog:addLogItem("STATS", self.name .. " was somehow changed.")
+		elseif not trait.hidden then
+			EventLog:addLogItem("STATS", self.name .. " learned " .. Skill.getTrait(name).uiName .. " trait.")
+		end
 	end
 
 	EventLog:popEvent("orig_champion_addTrait")
 	return result
 end
 
--- STATS - stat increase
-local orig_champion_upgradeBaseStat = Champion.upgradeBaseStat
-function Champion:upgradeBaseStat(name, value)
-	EventLog:addLogItem("STATS", self.name .. "'s " .. name .. " raised.  " .. (self.stats[name].current ) .. " to " .. (self.stats[name].current + value) .. ".")
-	return orig_champion_upgradeBaseStat(self, name, value)
+-- STATS - general stat increases
+local orig_champion_modifyBaseStat = Champion.modifyBaseStat
+function Champion:modifyBaseStat(name, value)
+	for _,v in ipairs(STATS_CHANGES_TO_LOG) do
+		if name == v then
+			EventLog:addLogItem("STATS", self.name .. "'s " .. getStatName(name) .. " changed.  " .. (self.stats[name].current) .. " to " .. (self.stats[name].current + value) .. ".")
+		end
+	end
+	return orig_champion_modifyBaseStat(self, name, value)
 end
