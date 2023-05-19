@@ -41,39 +41,43 @@ local MAX_WIN_HEIGHT = 652
 local MAX_WIN_OFFSET = 2
 local TITLE_OFFSET_X = 271
 local TITLE_OFFSET_Y = 19
+local FILTER_OFFSET_X = 79
+local FILTER_OFFSET_Y = 563
+local FILTER_WIDTH = 243
+local BUTTON_CUSTOM_OFFSET_X = 290
+local BUTTON_CUSTOM_OFFSET_Y = 563
+local BUTTON_COPY_OFFSET_X = 334
+local BUTTON_COPY_OFFSET_Y = 559
 local BUTTON_CLEAR_OFFSET_X = 400
 local BUTTON_CLEAR_OFFSET_Y = 557
-local BUTTON_COPY_OFFSET_X = 329
-local BUTTON_COPY_OFFSET_Y = 559
-local FILTER_OFFSET_X = 83
-local FILTER_OFFSET_Y = 563
-local FILTER_WIDTH = 280
-local SCROLL_OFFSET_X = 46
+local SCROLL_OFFSET_X = 36
 local SCROLL_OFFSET_Y = 103
-local SCROLL_WIDTH = 447
+local SCROLL_WIDTH = 458
 local SCROLL_HEIGHT = 446
-local SCROLL_TEXT_OFFSET_X = 2
+local SCROLL_TEXT_OFFSET_X = 5
 local SCROLL_TEXT_OFFSET_Y = 19
-local CATEGORY_WIDTH = 86
-local BASE_FILTERS = { "EFFECT", "ACTION", "ITEM", "STATS", "ALL", "COMBAT" }
-local INDEX_OF_ALL_FILTER = 5
+local CATEGORY_WIDTH = 83
+local BASE_FILTERS = { "EFFECT", "ACTION", "ITEM", "STATS", "CUSTOM", "ALL", "COMBAT" }
+local INDEX_OF_ALL_FILTER = 6
 local RECIPROCAL_TYPES = { { "taken from", "given to" }, { "held in", "removed from" }, { "worn on", "removed from" } }
 
 -- Gui images
 local imagePath = "assets/textures/gui/gui_items.tga"
-GuiItem["logMinBack1"]   = { x = 551;  y = 2308;      width = 575; height = 112;  image = imagePath }
-GuiItem["logMinBack2"]   = { x = 708;  y = 2501;      width = 250; height = 21;   image = imagePath }
-GuiItem["logMaxBack"]    = { x = 0;    y = 775;       width = 550; height = 652;  image = imagePath }
-GuiItem["logOpen"]       = { x = 2162; y = 2220+42*0; width = 42;  height = 42;   image = imagePath }
-GuiItem["logClose"]      = { x = 2162; y = 2220+42*1; width = 42;  height = 42;   image = imagePath }
-GuiItem["logOpenHover"]  = { x = 2162; y = 2220+42*2; width = 42;  height = 42;   image = imagePath }
-GuiItem["logCloseHover"] = { x = 2162; y = 2220+42*3; width = 42;  height = 42;   image = imagePath }
-
+GuiItem["logMinBack1"]        = { x = 551;  y = 2308;      width = 575; height = 112;  image = imagePath }
+GuiItem["logMinBack2"]        = { x = 708;  y = 2501;      width = 250; height = 21;   image = imagePath }
+GuiItem["logOpen"]            = { x = 2162; y = 2220+42*0; width = 42;  height = 42;   image = imagePath }
+GuiItem["logClose"]           = { x = 2162; y = 2220+42*1; width = 42;  height = 42;   image = imagePath }
+GuiItem["logOpenHover"]       = { x = 2162; y = 2220+42*2; width = 42;  height = 42;   image = imagePath }
+GuiItem["logCloseHover"]      = { x = 2162; y = 2220+42*3; width = 42;  height = 42;   image = imagePath }
+GuiItem["logMaxBack"]         = { x = 0;    y = 775;       width = 550; height = 652;  image = imagePath }
+GuiItem["logBtnCustom"]       = { x = 2443; y = 1892;      width = 37;  height = 21;   image = imagePath }
+GuiItem["logBtnCustomHover"]  = { x = 2443; y = 2001;      width = 37;  height = 21;   image = imagePath }
 -- "Internal" fields
 local scrollInnerHeight = 8
 local scrollPosition = 0
 local scrollSmooth = 0
-local filteredItems = {}
+local filteredEntries = {}
+local customLogText = nil
 -- The game crashes if rendering too many logs.  300 appears safe (never crashed under ~340).
 EventLog.maxHistory = 300
 
@@ -152,48 +156,48 @@ end
 -----------
 -- Class --
 -----------
-EventLog.items = {}
+EventLog.entries = {}
 EventLog.isUiMaximized = false
 EventLog.currentFilterIndex = INDEX_OF_ALL_FILTER
 EventLog.filters = {}
 -- Events often trigger other events (attack -> dead -> xp).  Most events are logged after they're
 -- finished, so such chained events are logged in reverse order.  Stacking lets us reverse the order
 EventLog.eventStack = {}
-EventLog.eventStackLogItems = {}
+EventLog.eventStackLogEntries = {}
 
--- Adds a new item to the event log
-function EventLog:addLogItem(category, text, forceWhileResting)
-	-- Don't accept items unless the real filters are setup
+-- Adds a new entry to the event log
+function EventLog:addLogEntry(category, text, forceWhileResting)
+	-- Don't accept entries unless the real filters are setup
 	if #self.filters == 0 then return end
 
-	-- Block most items while resting
+	-- Block most entries while resting
 	if party.resting and not forceWhileResting then return end
 
-	local newItem = { category, text }
+	local newEntry = { category, text }
 
-	-- If events are stacked, store this new log item for later (once event stacking is finished)
+	-- If events are stacked, store this log entry for later (for after event stacking is finished)
 	if #self.eventStack > 0 then
-		self.eventStackLogItems[#self.eventStackLogItems+1] = newItem
+		self.eventStackLogEntries[#self.eventStackLogEntries+1] = newEntry
 		return
 	end
 
-	-- Check for items that undo the prior item ("taken from" & "given to" for example)
-	if self:handleReciprocalItems(newItem) then
+	-- Check for whether this entry that undos the prior one ("taken from" & "given to" for example)
+	if self:handleReciprocalEntries(newEntry) then
 		return
 	end
 
-	-- Add the new log item
-	self.items[#self.items + 1] = newItem
-	if self:itemMatchesFilter(newItem, self.filters[self.currentFilterIndex]) then
-		filteredItems[#filteredItems+1] = newItem
+	-- Add the new log entry
+	self.entries[#self.entries + 1] = newEntry
+	if self:entryMatchesFilter(newEntry, self.filters[self.currentFilterIndex]) then
+		filteredEntries[#filteredEntries+1] = newEntry
 	end
 
-	-- Limit log item count to avoid memory bloat
-	while #self.items > self.maxHistory do
-		if areArraysEquivalent(filteredItems[1], self.items[1]) then
-			table.remove(filteredItems, 1)
+	-- Limit log entry count to avoid memory bloat
+	while #self.entries > self.maxHistory do
+		if areArraysEquivalent(filteredEntries[1], self.entries[1]) then
+			table.remove(filteredEntries, 1)
 		end
-		table.remove(self.items, 1)
+		table.remove(self.entries, 1)
 	end
 
 	self:calculateScrollUi()
@@ -217,18 +221,18 @@ function EventLog:popEvent(eventId)
 		stackSize = #self.eventStack
 	end
 	if stackSize == 0 then
-		for i = #self.eventStackLogItems, 1, -1 do
-			self:addLogItem(self.eventStackLogItems[i][1], self.eventStackLogItems[i][2], true)
+		for i = #self.eventStackLogEntries, 1, -1 do
+			self:addLogEntry(self.eventStackLogEntries[i][1], self.eventStackLogEntries[i][2], true)
 		end
-		self.eventStackLogItems = {}
+		self.eventStackLogEntries = {}
 	end
 end
 
-function EventLog:removeLogItem()
-	if areArraysEquivalent(filteredItems[#filteredItems], self.items[#self.items]) then
-		table.remove(filteredItems)
+function EventLog:removeLogEntry()
+	if areArraysEquivalent(filteredEntries[#filteredEntries], self.entries[#self.items]) then
+		table.remove(filteredEntries)
 	end
-	local result = table.remove(self.items)
+	local result = table.remove(self.entries)
 	self:calculateScrollUi()
 	return result
 end
@@ -251,36 +255,36 @@ function EventLog:init()
 	-- Reset current filter to "All"
 	self.currentFilterIndex = INDEX_OF_ALL_FILTER
 
-	-- Clear items - change of party means change of game.  Don't keep items from old game
-	self.items = {}
-	filteredItems = {}
+	-- Clear entries - change of party means change of game.  Don't keep entries from old game
+	self.entries = {}
+	filteredEntries = {}
 end
 
-function EventLog:itemMatchesFilter(item, filter)
+function EventLog:entryMatchesFilter(entry, filter)
 	if filter == "ALL" then
 		return true
 	elseif filter:sub(1,8) == "COMBAT: " then
 		-- Champion-specific combat filters - must be combat category and start with champion name
 		return (
-			item[1] == "COMBAT" and
-			item[2]:sub(1, filter:len()-8) == filter:sub(9))
+			entry[1] == "COMBAT" and
+			entry[2]:sub(1, filter:len()-8) == filter:sub(9))
 	else
-		return (item[1] == filter)
+		return (entry[1] == filter)
 	end
 end
 
-function EventLog:handleReciprocalItems(newItem)
-	local latestItem = self.items[#self.items]
-	if latestItem == nil then return false end -- If there aren't any items yet, do nothing
+function EventLog:handleReciprocalEntries(newEntry)
+	local latestEntry = self.entries[#self.entries]
+	if latestEntry == nil then return false end -- If there aren't any entries yet, do nothing
 
-	-- Reciprocal items have the same category and different messages
-	if newItem[1] ~= latestItem[1] or newItem[2] == latestItem[2] then return false end
+	-- Reciprocal entries have the same category and different messages
+	if newEntry[1] ~= latestEntry[1] or newEntry[2] == latestEntry[2] then return false end
 
 	-- check each reciprocal type
 	for _,v in ipairs(RECIPROCAL_TYPES) do
-		if latestItem[2] == newItem[2]:gsub(v[1], v[2]) or
-		   latestItem[2] == newItem[2]:gsub(v[2], v[1]) then
-			self:removeLogItem()
+		if latestEntry[2] == newEntry[2]:gsub(v[1], v[2]) or
+		   latestEntry[2] == newEntry[2]:gsub(v[2], v[1]) then
+			self:removeLogEntry()
 			return true
 		end
 	end
@@ -289,8 +293,8 @@ function EventLog:handleReciprocalItems(newItem)
 end
 
 function EventLog:calculateScrollUi(forceSnapToBottom)
-	-- Determine scroll height based on count of filtered items
-	scrollInnerHeight = #filteredItems * FULL_TEXT_HEIGHT + 8
+	-- Determine scroll height based on count of filtered entries
+	scrollInnerHeight = #filteredEntries * FULL_TEXT_HEIGHT + 8
 
 	-- Determine if scroll is near the bottom of the list
 	local absoluteScrollPosition = (scrollInnerHeight - SCROLL_HEIGHT - scrollSmooth)
@@ -336,8 +340,10 @@ function EventLog:drawMinimizedUi()
 	gui:drawGuiItem_scaled(GuiItem.logMinBack2, MIN_WIN_LEFT + PADDING, MIN_WIN_BOTTOM - MIN_WIN_HEIGHT + PADDING, MIN_WIN_WIDTH - PADDING * 2 + MIN_INNER_BACK_SHORTENING, MIN_WIN_HEIGHT - PADDING * 2)
 
 	-- Text
-	if #filteredItems > 0 then
-		gui:drawText(filteredItems[#filteredItems][1] .. ":  " .. filteredItems[#filteredItems][2], MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y)
+	if customLogText then
+		gui:drawText(customLogText .. "_", MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y)
+	elseif #filteredEntries > 0 then
+		gui:drawText(filteredEntries[#filteredEntries][1] .. ":  " .. filteredEntries[#filteredEntries][2], MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y)
 	end
 
 	-- Button (open)
@@ -365,45 +371,54 @@ function EventLog:drawMaximizedUi()
 	-- Title
 	gui:drawTextCentered("Event log", leftOffset + TITLE_OFFSET_X, topOffset + TITLE_OFFSET_Y, FontType.MenuSmall)
 
-	-- Button - clear
-	if gui:button("clear", GuiItem.ButtonClear, leftOffset + BUTTON_CLEAR_OFFSET_X, topOffset + BUTTON_CLEAR_OFFSET_Y, GuiItem.ButtonClearHover, "Clear the log.") then
-		self.items = {}
-		filteredItems = {}
-		self:calculateScrollUi()
-	end
-
-	-- Button - copy
-	if gui:button("copy", GuiItem.MapButtonHover, leftOffset + BUTTON_COPY_OFFSET_X, topOffset + BUTTON_COPY_OFFSET_Y, GuiItem.MapButtonHover, "Copy the log to the clipboard.") then
-		local logText = ""
-		for i = 1, #filteredItems do
-			logText = logText .. filteredItems[i][1] .. ":  " .. filteredItems[i][2] .. "\n"
-		end
-		sys.setClipboard(logText)
-		gui:hudPrint("Log copied to the clipboard")
-	end
-
 	-- Combo - filter
 	local newFilterIndex = gui:comboBox_customWidth("logFilter", leftOffset + FILTER_OFFSET_X, topOffset + FILTER_OFFSET_Y, FILTER_WIDTH, self.currentFilterIndex, self.filters, nil, "Filter the log by event type.")
 	if newFilterIndex ~= self.currentFilterIndex then
 		self.currentFilterIndex = newFilterIndex
-		filteredItems = {}
-		for i = 1, #self.items do
-			if self:itemMatchesFilter(self.items[i], self.filters[self.currentFilterIndex]) then
-				filteredItems[#filteredItems+1] = self.items[i]
+		filteredEntries = {}
+		for i = 1, #self.entries do
+			if self:entryMatchesFilter(self.entries[i], self.filters[self.currentFilterIndex]) then
+				filteredEntries[#filteredEntries+1] = self.entries[i]
 			end
 		end
 		self:calculateScrollUi(true)
 	end
 
-	-- Start a scroll area for the log items
+	-- Button - custom log entry
+	if gui:button("custom", GuiItem.logBtnCustom, leftOffset + BUTTON_CUSTOM_OFFSET_X, topOffset + BUTTON_CUSTOM_OFFSET_Y, GuiItem.logBtnCustomHover, not customLogText and "Add a custom log entry." or "Cancel custom log entry.") then
+		if not customLogText then
+			customLogText = ""
+		else
+			customLogText = nil
+		end
+	end
+
+	-- Button - copy
+	if gui:button("copy", GuiItem.MapButtonHover, leftOffset + BUTTON_COPY_OFFSET_X, topOffset + BUTTON_COPY_OFFSET_Y, GuiItem.MapButtonHover, "Copy the log to the clipboard.") then
+		local logText = ""
+		for i = 1, #filteredEntries do
+			logText = logText .. filteredEntries[i][1] .. ":  " .. filteredEntries[i][2] .. "\n"
+		end
+		sys.setClipboard(logText)
+		gui:hudPrint("Log copied to the clipboard")
+	end
+
+	-- Button - clear
+	if gui:button("clear", GuiItem.ButtonClear, leftOffset + BUTTON_CLEAR_OFFSET_X, topOffset + BUTTON_CLEAR_OFFSET_Y, GuiItem.ButtonClearHover, "Clear the log.") then
+		self.entries = {}
+		filteredEntries = {}
+		self:calculateScrollUi()
+	end
+
+	-- Start a scroll area for the log entries
 	scrollPosition = gui:beginScrollArea("logScroll", leftOffset + SCROLL_OFFSET_X, topOffset + SCROLL_OFFSET_Y, SCROLL_WIDTH, SCROLL_HEIGHT, scrollPosition, scrollInnerHeight, FULL_TEXT_HEIGHT)
 	scrollPosition, scrollSmooth = gui:smoothScroll(scrollPosition, scrollSmooth)
 
-	-- Draw the log items
+	-- Draw the log entries
 	local listOffset = 0
-	for i= 1, #filteredItems do
-		gui:drawText(filteredItems[i][1], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y)
-		gui:drawText(filteredItems[i][2], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X + CATEGORY_WIDTH, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y)
+	for i= 1, #filteredEntries do
+		gui:drawText(filteredEntries[i][1], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y)
+		gui:drawText(filteredEntries[i][2], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X + CATEGORY_WIDTH, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y)
 		listOffset = listOffset + FULL_TEXT_HEIGHT
 	end
 
@@ -471,14 +486,33 @@ end
 
 -- "Escape" will unmaximize the event log
 -- "O" key will toggle maximizing the event log
+-- While in custom log entry mode, many keystrokes are used for the text entry
 local orig_gameMode_keyPressed = GameMode.keyPressed
 function GameMode:keyPressed(event)
-	if event.key == "escape" and EventLog.isUiMaximized then
-		EventLog.isUiMaximized = false
-		return
-	end
-	if event.key == "O" then
-		EventLog.isUiMaximized = not EventLog.isUiMaximized
+	if customLogText then
+		if event.key == 'enter' then
+			EventLog:addLogEntry("CUSTOM", customLogText, true)
+			customLogText = nil
+			return
+		elseif event.key == 'escape' then
+			customLogText = nil
+			return
+		elseif event.key == 'backspace' and #customLogText > 0 then
+			customLogText = customLogText:sub(1, #customLogText - 1)
+			return
+		elseif event.char and FontType.PalatinoSmall:isPrintable(event.char) and #customLogText < 200 then
+			customLogText = customLogText .. event.char
+			return
+		end
+	else
+		if event.key == "escape" and EventLog.isUiMaximized then
+			EventLog.isUiMaximized = false
+			return
+		end
+		if event.key == "O" then
+			EventLog.isUiMaximized = not EventLog.isUiMaximized
+			return
+		end
 	end
 	return orig_gameMode_keyPressed(self, event)
 end
@@ -586,8 +620,8 @@ local function logPartyHpStateChanges(oldState, changeMessage, negate, category)
 	for i=1,4 do
 		local change = math.floor(state[i] - oldState[i])
 		if negate then change = -change end
-		if change > 0 then
-			EventLog:addLogItem(category, changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change))
+		if change ~= 0 then
+			EventLog:addLogEntry(category, changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change))
 		end
 	end
 end
@@ -609,8 +643,8 @@ local function logPartyEpStateChanges(oldState, changeMessage, negate, category)
 	for i=1,4 do
 		local change = math.floor(state[i] - oldState[i])
 		if negate then change = -change end
-		if change > 0 then
-			EventLog:addLogItem(category, changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change))
+		if change ~= 0 then
+			EventLog:addLogEntry(category, changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change))
 		end
 	end
 end
@@ -655,7 +689,7 @@ local function logPartyXpStateChanges(oldState)
 			end
 		end
 		if collectiveGain ~= -1 then
-			EventLog:addLogItem("STATS", collectiveGain .. " XP gained by " .. championTexts .. ".", true)
+			EventLog:addLogEntry("STATS", collectiveGain .. " XP gained by " .. championTexts .. ".", true)
 			xpAmountsLogged[#xpAmountsLogged+1] = collectiveGain
 		end
 	end
@@ -673,7 +707,7 @@ local function logMonsterHpChanges(oldState, monster, changeMessage, negate, cat
 	if negate then change = -change end
 	if change ~= 0 or forceMessage then
 		if change == 0 then change = 0 end -- get rid of negative zero
-		EventLog:addLogItem(category, changeMessage:gsub("$name", firstToUpper(monster.go.arch.name)):gsub("$change", change))
+		EventLog:addLogEntry(category, changeMessage:gsub("$name", firstToUpper(monster.go.arch.name)):gsub("$change", change))
 	end
 end
 
@@ -687,7 +721,7 @@ function UsableItemComponent:onUseItem(champion)
 	local result = orig_usableItemComponent_onUseItem(self, champion)
 
 	if result then
-		EventLog:addLogItem("ITEM", champion.name .. " consumed " .. getItemDisplayName(self.go.item) .. ".")
+		EventLog:addLogEntry("ITEM", champion.name .. " consumed " .. getItemDisplayName(self.go.item) .. ".")
 	end
 
 	EventLog:popEvent("orig_usableItemComponent_onUseItem")
@@ -697,7 +731,7 @@ end
 -- ITEM - Add to inventory
 local orig_champion_addToBackpack = Champion.addToBackpack
 function Champion:addToBackpack(item, autoEquip)
-	EventLog:addLogItem("ITEM", getItemDisplayName(item) .. " given to " .. self.name .. ".")
+	EventLog:addLogEntry("ITEM", getItemDisplayName(item) .. " given to " .. self.name .. ".")
 	return orig_champion_addToBackpack(self, item, autoEquip)
 end
 
@@ -724,18 +758,18 @@ function CharSheet:slotClicked(owner, button, slot)
 		end
 		if inSlot ~= "" then
 			if slot <= 2 then
-				EventLog:addLogItem("ITEM", inSlot .. " held in " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+				EventLog:addLogEntry("ITEM", inSlot .. " held in " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
 			elseif slot <= #SLOT_NAMES then
-				EventLog:addLogItem("ITEM", inSlot .. " worn on " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+				EventLog:addLogEntry("ITEM", inSlot .. " worn on " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
 			else
-				EventLog:addLogItem("ITEM", inSlot .. " given to " .. championName .. ".")
+				EventLog:addLogEntry("ITEM", inSlot .. " given to " .. championName .. ".")
 			end
 		end
 		if inHand ~= "" then
 			if slot <= #SLOT_NAMES then
-				EventLog:addLogItem("ITEM", inHand .. " removed from " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+				EventLog:addLogEntry("ITEM", inHand .. " removed from " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
 			else
-				EventLog:addLogItem("ITEM", inHand .. " taken from " .. championName .. ".")
+				EventLog:addLogEntry("ITEM", inHand .. " taken from " .. championName .. ".")
 			end
 		end
 	end
@@ -755,7 +789,7 @@ function ChestComponent:onClick()
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
 		local loss = getLossBetweenItemStates(oldState, state)
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(loss) .. " used to unlock a chest.")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(loss) .. " used to unlock a chest.")
 	end
 
 	EventLog:popEvent("orig_chestComponent_onClick")
@@ -773,7 +807,7 @@ function LockComponent:onClick()
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
 		local loss = getLossBetweenItemStates(oldState, state)
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(loss) .. " used to unlock a lock.")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(loss) .. " used to unlock a lock.")
 	end
 
 	EventLog:popEvent("orig_lockComponent_onclick")
@@ -789,7 +823,7 @@ function ItemComponent:dropItemToFloor(x, y)
 	local result = orig_itemComponent_dropItemToFloor(self, x, y)
 
 	if result then
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " dropped.")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(oldState) .. " dropped.")
 	end
 
 	EventLog:popEvent("orig_itemComponent_dropItemToFloor")
@@ -805,7 +839,7 @@ function ItemComponent:dragItemToThrowZone(x, y)
 	local result = orig_itemComponent_dragItemToThrowZone(self, x, y)
 
 	if result then
-		EventLog:addLogItem("ITEM", gameMode:getActiveChampion().name .. " threw " .. getItemStateDisplayName(oldState) .. ".")
+		EventLog:addLogEntry("ITEM", gameMode:getActiveChampion().name .. " threw " .. getItemStateDisplayName(oldState) .. ".")
 	end
 
 	EventLog:popEvent("orig_itemComponent_dragItemToThrowZone")
@@ -815,7 +849,7 @@ end
 -- ITEM - thrown using item's attack
 local throwAttackComponent_start = ThrowAttackComponent.start
 function ThrowAttackComponent:start(champion, slot)
-	EventLog:addLogItem("ITEM", champion.name .. " threw " .. getItemDisplayName(self.go.item, true) .. ".")
+	EventLog:addLogEntry("ITEM", champion.name .. " threw " .. getItemDisplayName(self.go.item, true) .. ".")
 	return throwAttackComponent_start(self, champion, slot)
 end
 
@@ -831,7 +865,7 @@ function RangedAttackComponent:start(champion, slot)
 	if itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
 		local state = getItemState(champion:getItem(otherSlot), true)
 		local loss = getLossBetweenItemStates(oldState, state)
-		EventLog:addLogItem("ITEM", champion.name .. " shot " .. getItemStateDisplayName(loss) .. ".")
+		EventLog:addLogEntry("ITEM", champion.name .. " shot " .. getItemStateDisplayName(loss) .. ".")
 	end
 
 	EventLog:popEvent("orig_rangedAttackComponent_start")
@@ -848,9 +882,9 @@ function FirearmAttackComponent:start(champion, slot)
 	local result = orig_firearmAttackComponent_start(self, champion, slot)
 
 	if champion:getItem(slot):getJammed() then
-		EventLog:addLogItem("COMBAT", champion.name .. "'s gun jammed.")
+		EventLog:addLogEntry("COMBAT", champion.name .. "'s gun jammed.")
 	elseif itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
-		EventLog:addLogItem("ITEM", champion.name .. " shot " .. getItemDisplayName(champion:getItem(slot)) .. ".")
+		EventLog:addLogEntry("ITEM", champion.name .. " shot " .. getItemDisplayName(champion:getItem(slot)) .. ".")
 	end
 
 	EventLog:popEvent("orig_firearmAttackComponent_start")
@@ -867,7 +901,7 @@ function ItemComponent:onClickComponent()
 
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(state) .. " taken.")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(state) .. " taken.")
 	end
 
 	EventLog:popEvent("orig_itemComponent_onClickComponent")
@@ -883,7 +917,7 @@ function SmallFishControllerComponent:onClick()
 	local result = orig_smallFishControllerComponent_onClick(self)
 
 	if itemStateHasChanged(oldState) then
-		EventLog:addLogItem("ITEM", "Silver roach taken.")
+		EventLog:addLogEntry("ITEM", "Silver roach taken.")
 	end
 
 	EventLog:popEvent("orig_smallFishControllerComponent_onClick")
@@ -907,7 +941,7 @@ function PartyComponent:pickUpAmmo()
 	-- log all auto-pickups
 	for i = 1,4 do
 		if autoPickupCounter[i][2] ~= 0 then
-			EventLog:addLogItem("ITEM", self.champions[i].name .. " picked up " .. getItemStateDisplayName(autoPickupCounter[i]))
+			EventLog:addLogEntry("ITEM", self.champions[i].name .. " picked up " .. getItemStateDisplayName(autoPickupCounter[i]))
 		end
 	end
 
@@ -937,7 +971,7 @@ function SocketComponent:onClick()
 	local result = orig_socketComponent_onClick(self)
 
 	if itemStateHasChanged(oldState) then
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " placed in " .. self.go.arch.name .. ".")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(oldState) .. " placed in " .. self.go.arch.name .. ".")
 	end
 
 	EventLog:popEvent("orig_socketComponent_onClick")
@@ -953,7 +987,7 @@ function SurfaceComponent:onClick(button, x, y)
 	local result = orig_surfaceComponent_onClick(self, button, x, y)
 
 	if itemStateHasChanged(oldState) then
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(oldState) .. " placed on " .. self.go.arch.name .. ".")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(oldState) .. " placed on " .. self.go.arch.name .. ".")
 	end
 
 	EventLog:popEvent("orig_surfaceComponent_onClick")
@@ -972,7 +1006,7 @@ function CraftPotionComponent:brewPotion(champion)
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
 		local gain = getLossBetweenItemStates(state, oldState)
-		EventLog:addLogItem("ITEM", getItemStateDisplayName(gain) .. " brewed.")
+		EventLog:addLogEntry("ITEM", getItemStateDisplayName(gain) .. " brewed.")
 	else
 		-- Look for a reachable item that wasn't there before
 		local newGroundItems = getPartyReachableItems()
@@ -986,7 +1020,7 @@ function CraftPotionComponent:brewPotion(champion)
 					end
 				end
 				if not found then
-					EventLog:addLogItem("ITEM", getItemDisplayName(newV) .. " brewed.")
+					EventLog:addLogEntry("ITEM", getItemDisplayName(newV) .. " brewed.")
 					break
 				end
 			end
@@ -1028,7 +1062,7 @@ function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, d
 	local result = orig_monsterComponent_onAttackedByChampion(self, champion, weapon, attack, slot, dualWieldSide)
 
 	if result == "miss" then
-		EventLog:addLogItem("COMBAT", champion.name .. dualWieldText .. " attacked " .. self.go.arch.name .. "... miss.")
+		EventLog:addLogEntry("COMBAT", champion.name .. dualWieldText .. " attacked " .. self.go.arch.name .. "... miss.")
 	end
 	attackerName = nil
 
@@ -1094,7 +1128,7 @@ function ItemComponent:projectileHitEntity(target)
 	local result = orig_itemComponent_projectileHitEntity(self, target)
 
 	if result == "miss" or attackerName == nil then
-		local damageText = (result == "miss") and "miss." or "$change damage."
+		local damageText = (result == "miss") and "miss." or "$change HP."
 		local category
 		local message
 		if attackerName == nil then
@@ -1105,9 +1139,9 @@ function ItemComponent:projectileHitEntity(target)
 			message = attackerName .. " attacked $name... " .. damageText
 		end
 		if target.monster then
-			logMonsterHpChanges(oldState, target.monster, message, true, category, true)
+			logMonsterHpChanges(oldState, target.monster, message, false, category, true)
 		elseif target.party then
-			logPartyHpStateChanges(oldState, message, true, category, true)
+			logPartyHpStateChanges(oldState, message, false, category, true)
 		end
 	end
 	attackerName = nil
@@ -1127,7 +1161,7 @@ function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, 
 
 	if attackerName ~= nil then
 		local attackText = (heading == "Backstab") and "backstabbed" or (heading == "Critical") and "criticaled" or "attacked"
-		logMonsterHpChanges(oldState, self, attackerName .. dualWieldText .. " " .. attackText .. " $name" .. "... $change damage.", true, "COMBAT", isImmune)
+		logMonsterHpChanges(oldState, self, attackerName .. dualWieldText .. " " .. attackText .. " $name" .. "... $change HP.", false, "COMBAT", isImmune)
 	end
 
 	EventLog:popEvent("orig_monsterComponent_damage")
@@ -1143,7 +1177,7 @@ function Champion:damage(dmg, damageType)
 	local result = orig_champion_damage(self, dmg, damageType)
 
 	if attackerName ~= nil then
-		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change damage.", true, "COMBAT")
+		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change HP.", false, "COMBAT")
 	end
 	
 	EventLog:popEvent("orig_champion_damage")
@@ -1162,7 +1196,7 @@ function MonsterComponent:die(gainExp)
 	logPartyXpStateChanges(oldState)
 	isMonitoringXp = false
 	EventLog:popEvent("orig_monsterComponent_die")
-	EventLog:addLogItem("COMBAT", self.go.arch.name .. " died.")
+	EventLog:addLogEntry("COMBAT", self.go.arch.name .. " died.")
 
 	return result
 end
@@ -1175,7 +1209,7 @@ function Champion:regainHealth(amount)
 	EventLog:pushEvent("orig_champion_regainHealth")
 	local result = orig_champion_regainHealth(self, amount)
 
-	logPartyHpStateChanges(oldState, "$name is healed for $change hp.")
+	logPartyHpStateChanges(oldState, "$name is healed... $change HP.")
 
 	EventLog:popEvent("orig_champion_regainHealth")
 	return result
@@ -1189,7 +1223,7 @@ function Champion:regainEnergy(amount)
 	EventLog:pushEvent("orig_champion_regainEnergy")
 	local result = orig_champion_regainEnergy(self, amount)
 
-	logPartyEpStateChanges(oldState, "$name is energized for $change hp.")
+	logPartyEpStateChanges(oldState, "$name is energized... $change EP.")
 
 	EventLog:popEvent("orig_champion_regainEnergy")
 	return result
@@ -1238,9 +1272,9 @@ function Champion:setCondition(name, value, forceLog)
 		else
 			conditionText = " was " .. conditionText
 		end
-		EventLog:addLogItem("EFFECT", self.name .. conditionText .. ".", true)
+		EventLog:addLogEntry("EFFECT", self.name .. conditionText .. ".", true)
 	else
-		EventLog:addLogItem("EFFECT", self.name .. " no longer " .. conditionText .. ".", true)
+		EventLog:addLogEntry("EFFECT", self.name .. " no longer " .. conditionText .. ".", true)
 	end
 
 	EventLog:popEvent("orig_champion_setCondition")
@@ -1290,7 +1324,7 @@ function MonsterComponent:setCondition(condition, duration)
 		if condition == "burning" then condition = "set on fire"
 		elseif condition == "sleep" then condition = "put to sleep"
 		elseif condition == "sleeping" then condition = "put to sleep" end
-		EventLog:addLogItem("EFFECT", self.go.arch.name .. " was " .. condition .. ".")
+		EventLog:addLogEntry("EFFECT", self.go.arch.name .. " was " .. condition .. ".")
 	end
 
 	EventLog:popEvent("orig_monsterComponent_setCondition")
@@ -1305,7 +1339,7 @@ function PartyComponent:updateDiving()
 	EventLog:pushEvent("orig_partyComponent_updateDiving")
 	local result = orig_partyComponent_updateDiving(self)
 
-	logPartyHpStateChanges(oldState, "$name is drowning... $change damage.", true)
+	logPartyHpStateChanges(oldState, "$name is drowning... $change HP.")
 
 	EventLog:popEvent("orig_partyComponent_updateDiving")
 	return result
@@ -1319,7 +1353,7 @@ function PartyComponent:onFallingImpact(velocity, distanceFallen)
 	EventLog:pushEvent("orig_partyComponent_onFallingImpact")
 	result = orig_partyComponent_onFallingImpact(self, velocity, distanceFallen)
 
-	logPartyHpStateChanges(oldState, "$name fell... $change damage.", true)
+	logPartyHpStateChanges(oldState, "$name fell... $change HP.")
 
 	EventLog:popEvent("orig_partyComponent_onFallingImpact")
 	return result
@@ -1333,7 +1367,7 @@ function PoisonCondition:tick(champion)
 	EventLog:pushEvent("orig_poisonCondition_tick")
 	local result = orig_poisonCondition_tick(self, champion)
 
-	logPartyHpStateChanges(oldState, "$name is poisoned... $change damage.", true)
+	logPartyHpStateChanges(oldState, "$name is poisoned... $change HP.")
 
 	EventLog:popEvent("orig_poisonCondition_tick")
 	return result
@@ -1342,19 +1376,19 @@ end
 -- ACTION - Button
 local orig_buttonComponent_onClick = ButtonComponent.onClick
 function ButtonComponent:onClick()
-	EventLog:addLogItem("ACTION", "Button clicked.")
+	EventLog:addLogEntry("ACTION", "Button clicked.")
 	return orig_buttonComponent_onClick(self)
 end
 
 -- ACTION - Floor trigger
 local orig_floorTriggerComponent_activate = FloorTriggerComponent.activate
 function FloorTriggerComponent:activate()
-	EventLog:addLogItem("ACTION", "Pressure plate triggered.")
+	EventLog:addLogEntry("ACTION", "Pressure plate triggered.")
 	return orig_floorTriggerComponent_activate(self)
 end
 local orig_floorTriggerComponent_deactivate = FloorTriggerComponent.deactivate
 function FloorTriggerComponent:deactivate()
-	EventLog:addLogItem("ACTION", "Pressure plate untriggered.")
+	EventLog:addLogEntry("ACTION", "Pressure plate untriggered.")
 	return orig_floorTriggerComponent_deactivate(self)
 end
 
@@ -1362,9 +1396,9 @@ end
 local orig_leverComponent_toggle = LeverComponent.toggle
 function LeverComponent:toggle()
 	if self.activated then
-		EventLog:addLogItem("ACTION", "Lever deactivated.")
+		EventLog:addLogEntry("ACTION", "Lever deactivated.")
 	else
-		EventLog:addLogItem("ACTION", "Lever activated.")
+		EventLog:addLogEntry("ACTION", "Lever activated.")
 	end
 	return orig_leverComponent_toggle(self)
 end
@@ -1378,10 +1412,10 @@ function PartyComponent:rest(text, timeMultiplier)
 	if party.resting then
 		currentRestIsForAction = (text ~= nil)
 		if not currentRestIsForAction then
-			EventLog:addLogItem("ACTION", "Resting.", true)
+			EventLog:addLogEntry("ACTION", "Resting.", true)
 		else
 			-- The non-resting messages use "...".  Remove that and use "." instead.
-			EventLog:addLogItem("ACTION", text:gsub("%.%.%.", "") .. ".", true)
+			EventLog:addLogEntry("ACTION", text:gsub("%.%.%.", "") .. ".", true)
 		end
 	end
 
@@ -1394,9 +1428,9 @@ local orig_partyComponent_wakeUp = PartyComponent.wakeUp
 function PartyComponent:wakeUp(restInterrupted)
 	if party.resting and not currentRestIsForAction then
 		if restInterrupted then
-			EventLog:addLogItem("ACTION", "Rest interrupted.", true)
+			EventLog:addLogEntry("ACTION", "Rest interrupted.", true)
 		else
-			EventLog:addLogItem("ACTION", "Rest ended.", true)
+			EventLog:addLogEntry("ACTION", "Rest ended.", true)
 		end
 	end
 	return orig_partyComponent_wakeUp(self, restInterrupted)
@@ -1406,7 +1440,7 @@ end
 local orig_diggingToolComponent_onPartyWakeUp = DiggingToolComponent.onPartyWakeUp
 function DiggingToolComponent:onPartyWakeUp(interrupted)
 	if not self.diggingCounter or self.diggingCounter < 7 then
-		EventLog:addLogItem("ACTION", "Dig interrupted.", true)
+		EventLog:addLogEntry("ACTION", "Dig interrupted.", true)
 	end
 	orig_diggingToolComponent_onPartyWakeUp(self, interrupted)
 end
@@ -1415,7 +1449,7 @@ end
 local orig_ropeToolComponent_onPartyWakeUp = RopeToolComponent.onPartyWakeUp
 function RopeToolComponent:onPartyWakeUp(interrupted)
 	if not self.counter or self.counter < 7 then
-		EventLog:addLogItem("ACTION", "Climb interrupted.", true)
+		EventLog:addLogEntry("ACTION", "Climb interrupted.", true)
 	end
 	orig_ropeToolComponent_onPartyWakeUp(self, interrupted)
 end
@@ -1423,14 +1457,14 @@ end
 -- ACTION - Used healing crystal
 local orig_crystalComponent_onClick = CrystalComponent.onClick
 function CrystalComponent:onClick()
-	EventLog:addLogItem("ACTION", "Healing crystal used.", true)
+	EventLog:addLogEntry("ACTION", "Healing crystal used.", true)
 	orig_crystalComponent_onClick(self)
 end
 
 -- ACTION - Find secret
 local orig_secretComponent_activate = SecretComponent.activate
 function SecretComponent:activate()
-	EventLog:addLogItem("ACTION", "Secret found.", true)
+	EventLog:addLogEntry("ACTION", "Secret found.", true)
 	return orig_secretComponent_activate(self)
 end
 
@@ -1438,7 +1472,7 @@ end
 local orig_champion_levelUp = Champion.levelUp
 function Champion:levelUp()
 	isNormalSkillPointChange = true
-	EventLog:addLogItem("STATS", self.name .. " leveled to " .. (self.level+1) .. ".")
+	EventLog:addLogEntry("STATS", self.name .. " leveled to " .. (self.level+1) .. ".")
 
 	local result = orig_champion_levelUp(self)
 
@@ -1452,7 +1486,7 @@ local orig_champion_addSkillPoints = Champion.addSkillPoints
 function Champion:addSkillPoints(amount)
 	if not isNormalSkillPointChange then -- Don't log levelups and slotting skill points
 		local plural_s = amount == 1 and "" or "s"
-		EventLog:addLogItem("STATS", self.name .. " gained " .. amount .. " skill point" .. plural_s .. ".")
+		EventLog:addLogEntry("STATS", self.name .. " gained " .. amount .. " skill point" .. plural_s .. ".")
 	end
 	return orig_champion_addSkillPoints(self, amount)
 end
@@ -1503,7 +1537,7 @@ end
 local orig_champion_trainSkill = Champion.trainSkill
 function Champion:trainSkill(name, times, spendPoints)
 	isNormalSkillPointChange = true
-	EventLog:addLogItem("STATS", self.name .. " gained " .. times .. " in " .. name:gsub("_", " ") .. " skill.")
+	EventLog:addLogEntry("STATS", self.name .. " gained " .. times .. " in " .. name:gsub("_", " ") .. " skill.")
 
 	local result = orig_champion_trainSkill(self, name, times, spendPoints)
 
@@ -1523,9 +1557,9 @@ function Champion:addTrait(name)
 	if not pre_hasTrait and self:hasTrait(name) then
 		local trait = Skill.getTrait(name)
 		if name == "nightstalker" then
-			EventLog:addLogItem("STATS", self.name .. " was somehow changed.")
+			EventLog:addLogEntry("STATS", self.name .. " was somehow changed.")
 		elseif not trait.hidden then
-			EventLog:addLogItem("STATS", self.name .. " learned " .. Skill.getTrait(name).uiName .. " trait.")
+			EventLog:addLogEntry("STATS", self.name .. " learned " .. Skill.getTrait(name).uiName .. " trait.")
 		end
 	end
 
@@ -1538,7 +1572,7 @@ local orig_champion_modifyBaseStat = Champion.modifyBaseStat
 function Champion:modifyBaseStat(name, value)
 	for _,v in ipairs(STATS_CHANGES_TO_LOG) do
 		if name == v then
-			EventLog:addLogItem("STATS", self.name .. "'s " .. getStatName(name) .. " changed.  " .. (self.stats[name].current) .. " to " .. (self.stats[name].current + value) .. ".")
+			EventLog:addLogEntry("STATS", self.name .. "'s " .. getStatName(name) .. " changed.  " .. (self.stats[name].current) .. " to " .. (self.stats[name].current + value) .. ".")
 		end
 	end
 	return orig_champion_modifyBaseStat(self, name, value)
