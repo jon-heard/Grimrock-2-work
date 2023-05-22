@@ -78,7 +78,7 @@ local scrollPosition = 0
 local scrollSmooth = 0
 local filteredEntries = {}
 local customLogText = nil
--- The game crashes if rendering too many logs.  300 appears safe (never crashed under ~340).
+-- The game crashes if rendering too many logs.  300 appears safe (never seen it crash under ~340).
 EventLog.maxHistory = 300
 
 
@@ -194,10 +194,7 @@ function EventLog:addLogEntry(category, text, forceWhileResting)
 
 	-- Limit log entry count to avoid memory bloat
 	while #self.entries > self.maxHistory do
-		if areArraysEquivalent(filteredEntries[1], self.entries[1]) then
-			table.remove(filteredEntries, 1)
-		end
-		table.remove(self.entries, 1)
+		self:removeLogEntry(true)
 	end
 
 	self:calculateScrollUi()
@@ -228,11 +225,16 @@ function EventLog:popEvent(eventId)
 	end
 end
 
-function EventLog:removeLogEntry()
-	if areArraysEquivalent(filteredEntries[#filteredEntries], self.entries[#self.items]) then
-		table.remove(filteredEntries)
+function EventLog:removeLogEntry(fromBack)
+	if #self.entries == 0 then return end
+
+	local filteredIndexToRemove = fromBack and 1 or #filteredEntries
+	local rawIndexToRemove = fromBack and 1 or #self.entries
+
+	if #filteredEntries ~= 0 and areArraysEquivalent(filteredEntries[filteredIndexToRemove], self.entries[rawIndexToRemove]) then
+		table.remove(filteredEntries, filteredIndexToRemove)
 	end
-	local result = table.remove(self.entries)
+	local result = table.remove(self.entries, rawIndexToRemove)
 	self:calculateScrollUi()
 	return result
 end
@@ -537,6 +539,9 @@ local dualWieldText = ""
 -- The resting mechanism is used for actions such as digging and rope climbing.  Logging should
 -- be handled differently in these cases.
 local currentRestIsForAction = false
+-- Store hp & ep before resting to log changes after resting
+local preRestHp = nil
+local preRestEp = nil
 
 -- Get a list of all reachable entities that are items
 function getPartyReachableItems()
@@ -621,7 +626,8 @@ local function logPartyHpStateChanges(oldState, changeMessage, negate, category)
 		local change = math.floor(state[i] - oldState[i])
 		if negate then change = -change end
 		if change ~= 0 then
-			EventLog:addLogEntry(category, changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change))
+			local msg = changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change)
+			EventLog:addLogEntry(category, msg)
 		end
 	end
 end
@@ -644,7 +650,8 @@ local function logPartyEpStateChanges(oldState, changeMessage, negate, category)
 		local change = math.floor(state[i] - oldState[i])
 		if negate then change = -change end
 		if change ~= 0 then
-			EventLog:addLogEntry(category, changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change))
+			local msg = changeMessage:gsub("$name", party.champions[i].name):gsub("$change", change)
+			EventLog:addLogEntry(category, msg)
 		end
 	end
 end
@@ -707,7 +714,8 @@ local function logMonsterHpChanges(oldState, monster, changeMessage, negate, cat
 	if negate then change = -change end
 	if change ~= 0 or forceMessage then
 		if change == 0 then change = 0 end -- get rid of negative zero
-		EventLog:addLogEntry(category, changeMessage:gsub("$name", firstToUpper(monster.go.arch.name)):gsub("$change", change))
+		changeMessage = changeMessage:gsub("$name", firstToUpper(monster.go.arch.name)):gsub("$change", change)
+		EventLog:addLogEntry(category, changeMessage)
 	end
 end
 
@@ -1209,7 +1217,7 @@ function Champion:regainHealth(amount)
 	EventLog:pushEvent("orig_champion_regainHealth")
 	local result = orig_champion_regainHealth(self, amount)
 
-	logPartyHpStateChanges(oldState, "$name is healed... $change HP.")
+	logPartyHpStateChanges(oldState, "$name healed... $change HP.")
 
 	EventLog:popEvent("orig_champion_regainHealth")
 	return result
@@ -1223,7 +1231,7 @@ function Champion:regainEnergy(amount)
 	EventLog:pushEvent("orig_champion_regainEnergy")
 	local result = orig_champion_regainEnergy(self, amount)
 
-	logPartyEpStateChanges(oldState, "$name is energized... $change EP.")
+	logPartyEpStateChanges(oldState, "$name energized... $change EP.")
 
 	EventLog:popEvent("orig_champion_regainEnergy")
 	return result
@@ -1383,12 +1391,16 @@ end
 -- ACTION - Floor trigger
 local orig_floorTriggerComponent_activate = FloorTriggerComponent.activate
 function FloorTriggerComponent:activate()
-	EventLog:addLogEntry("ACTION", "Pressure plate triggered.")
+	if self.pressurePlate then
+		EventLog:addLogEntry("ACTION", "Pressure plate triggered.")
+	end
 	return orig_floorTriggerComponent_activate(self)
 end
 local orig_floorTriggerComponent_deactivate = FloorTriggerComponent.deactivate
 function FloorTriggerComponent:deactivate()
-	EventLog:addLogEntry("ACTION", "Pressure plate untriggered.")
+	if self.pressurePlate then
+		EventLog:addLogEntry("ACTION", "Pressure plate untriggered.")
+	end
 	return orig_floorTriggerComponent_deactivate(self)
 end
 
@@ -1406,6 +1418,9 @@ end
 -- ACTION - Rest and rest-based actions begun
 local orig_partyComponent_rest = PartyComponent.rest
 function PartyComponent:rest(text, timeMultiplier)
+	preRestHp = getPartyHpState()
+	preRestEp = getPartyEpState()
+
 	EventLog:pushEvent("orig_partyComponent_rest")
 	local result = orig_partyComponent_rest(self, text, timeMultiplier)
 
@@ -1432,8 +1447,16 @@ function PartyComponent:wakeUp(restInterrupted)
 		else
 			EventLog:addLogEntry("ACTION", "Rest ended.", true)
 		end
+
+		local result = orig_partyComponent_wakeUp(self, restInterrupted)
+
+		logPartyHpStateChanges(preRestHp, "$name healed... $change HP.")
+		logPartyEpStateChanges(preRestEp, "$name energized... $change EP.")
+
+		return result
+	else
+		orig_partyComponent_wakeUp(self, restInterrupted)
 	end
-	return orig_partyComponent_wakeUp(self, restInterrupted)
 end
 
 -- ACTION - Shovel use interrupted
