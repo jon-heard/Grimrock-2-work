@@ -2,10 +2,10 @@
 DEV_MODE = true
 
 -- If true, a log file is opened with "devLog_write()" to write to it
---OPEN_DEV_LOG = true
+OPEN_DEV_LOG = true
 
 -- The name of the umod under development.  All locals for this umod will be globalized.
---DEV_SCRIPT = ""
+DEV_SCRIPT = ""
 
 -- A table to store global stuff for debugging
 g = g or {}
@@ -58,11 +58,11 @@ function drawBoxObject(box, color, transform)
 	transform = transform or mat.identity()
 	DebugDraw.drawBox3(box.pos - box.hsize, box.pos + box.hsize, transform, color)
 end
-function drawRay(ray, color, transform)
+function drawRayObject(ray, color, transform)
 	color = color or Color.White
 	transform = transform or mat.identity()
 	local v1 = mat.transformPoint(ray.pos, transform)
-	local v2 = mat.transformPoint(ray.pos + (ray.direction * 100), transform)
+	local v2 = mat.transformPoint(ray.pos + (ray.dir * 100), transform)
 	DebugDraw.drawLine3(v1, v2, color)
 end
 
@@ -90,7 +90,7 @@ else
 	scriptText = scriptText:gsub("\nlocal ", "\n")
 	local scriptLua, scriptLuaError = loadstring(scriptText)
 	if scriptLua == nil then
-		devLog_write("DevAids: Error on compiling umod '" .. DEV_SCRIPT .. "': ", scriptLuaError)
+		devLog_write("DevAids: Error on compiling umod '" .. DEV_SCRIPT .. "': " .. scriptLuaError)
 	else
 		scriptLua()
 		devLog_write("DevAids: Umod '" .. DEV_SCRIPT .. "' loaded with globalized locals.")
