@@ -5,7 +5,10 @@ DEV_MODE = true
 OPEN_DEV_LOG = true
 
 -- The name of the umod under development.  All locals for this umod will be globalized.
-DEV_SCRIPT = ""
+DEV_UMOD = ""
+
+-- If set, the dungeon mod with this name will be autostarted
+AUTOSTART_DUNGEON = ""
 
 -- A table to store global stuff for debugging
 g = g or {}
@@ -47,6 +50,11 @@ function printKeys(val, page, filter, showValues)
 	end
 end
 
+-- Rapid app exit
+function x()
+	sys.exit()
+end
+
 -- Draw primitive objects to the scene
 function drawSphereObject(sphere, color, transform)
 	color = color or Color.White
@@ -73,26 +81,46 @@ if OPEN_DEV_LOG then
 	devLog = io.open("devAids.log", "w")
 end
 function devLog_write(toWrite)
-	if not devLog then return end
-	devLog:write(toWrite .. "\n")
-	devLog:flush()
+	console:print(toWrite)
+	if devLog then
+		devLog:write(toWrite .. "\n")
+		devLog:flush()
+	end
 end
 
--- load the DEV_SCRIPT into Grimrock 2
-local scriptFile = io.open(config.documentsFolder .. "/mods/" .. (DEV_SCRIPT or "") .. ".lua")
-if not DEV_SCRIPT or DEV_SCRIPT == "" then
-	-- Do nothing as dev_script isn't defined
-elseif scriptFile == nil then
-	devLog_write("DevAids: Umod '" .. DEV_SCRIPT .. "' not opened.")
-else
-	local scriptText = scriptFile:read("*all")
-	scriptFile:close()
-	scriptText = scriptText:gsub("\nlocal ", "\n")
-	local scriptLua, scriptLuaError = loadstring(scriptText)
-	if scriptLua == nil then
-		devLog_write("DevAids: Error on compiling umod '" .. DEV_SCRIPT .. "': " .. scriptLuaError)
+-- load the DEV_UMOD into Grimrock 2
+if DEV_UMOD and DEV_UMOD ~= "" then
+	local scriptFile = io.open(config.documentsFolder .. "/mods/" .. (DEV_UMOD or "") .. ".lua")
+	if scriptFile == nil then
+		devLog_write("DevAids: Umod '" .. DEV_UMOD .. "' not opened.")
 	else
-		scriptLua()
-		devLog_write("DevAids: Umod '" .. DEV_SCRIPT .. "' loaded with globalized locals.")
+		local scriptText = scriptFile:read("*all")
+		scriptFile:close()
+		scriptText = scriptText:gsub("\nlocal ", "\n")
+		devLog_write("DevAids: Loading Umod '" .. DEV_UMOD .. "'...")
+		local scriptLua, scriptLuaError = loadstring(scriptText)
+		if scriptLua == nil then
+			devLog_write("DevAids: Error on loading umod '" .. DEV_UMOD .. "': " .. scriptLuaError)
+		else
+			scriptLua()
+			devLog_write("DevAids: Umod '" .. DEV_UMOD .. "' successfully loaded with globalized locals.")
+		end
+	end
+end
+
+-- Autostart dungeon
+if AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
+	local orig_gameMode_update = GameMode.update
+	function GameMode:update()
+		GameMode.update = orig_gameMode_update
+		local mod = modSystem:getModByGuid(AUTOSTART_DUNGEON:lower())
+		if mod then
+			devLog_write("DevAids: Loading autostart dungeon mod: \"" .. AUTOSTART_DUNGEON .. "\".")
+			modSystem:initMod(mod.guid)
+			gameMode:loadDefaultParty()
+			gameMode:startGame()
+		else
+			devLog_write("DevAids: Autostart dungeon mod not found: \"" .. AUTOSTART_DUNGEON .. "\".")
+		end
 	end
 end
