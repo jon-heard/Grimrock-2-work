@@ -2,17 +2,17 @@
 DEV_MODE = true
 
 -- If true, pressing the escape key will quit the app
-ESC_QUITS = true
+ESC_QUITS = false
 
 -- If true, a log file is opened.
 -- "devLog_write()" writes to this log file.  "devLog_write()" prints to console regardless.
 WRITE_DEV_LOGS_TO_FILE = false
 
 -- If set, the dungeon mod with this name will be autostarted when grimrock 2 is run.
-AUTOSTART_DUNGEON = "z_TestInteraction"
+--AUTOSTART_DUNGEON = ""
 
 -- A umod listed here (instead of mods.cfg) is loaded but with all locals globalized ("\nlocal " is removed throughout).
-DEV_UMOD = "vr_dev"
+--DEV_UMOD = ""
 
 -- A table to store global stuff for debugging
 g = g or {}
@@ -118,7 +118,7 @@ end
 
 -- Logic - load and run DEV_UMOD
 if DEV_UMOD and DEV_UMOD ~= "" then
-	local scriptFile = io.open(config.documentsFolder .. "/mods/" .. (DEV_UMOD or "") .. ".lua")
+	local scriptFile = io.open(config.documentsFolder .. "/Mods/" .. (DEV_UMOD or "") .. ".lua")
 	if scriptFile == nil then
 		devLog_write("DevAids: Umod '" .. DEV_UMOD .. "' not opened.")
 	else

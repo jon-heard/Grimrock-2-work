@@ -177,7 +177,7 @@ function EventLog:addLogEntry(category, text, forceWhileResting)
 
 	-- If events are stacked, store this log entry for later (for after event stacking is finished)
 	if #self.eventStack > 0 then
-		table.insert(self.eventStackLogEntries, newEntry)
+		self.eventStackLogEntries[#self.eventStackLogEntries+1] = newEntry
 		return
 	end
 
@@ -189,7 +189,7 @@ function EventLog:addLogEntry(category, text, forceWhileResting)
 	-- Add the new log entry
 	self.entries[#self.entries + 1] = newEntry
 	if self:entryMatchesFilter(newEntry, self.filters[self.currentFilterIndex]) then
-		table.insert(filteredEntries, newEntry)
+		filteredEntries[#filteredEntries+1] = newEntry
 	end
 
 	-- Limit log entry count to avoid memory bloat
@@ -201,7 +201,7 @@ function EventLog:addLogEntry(category, text, forceWhileResting)
 end
 
 function EventLog:pushEvent(eventId)
-	table.insert(self.eventStack, eventId)
+	self.eventStack[#self.eventStack+1] = eventId
 end
 
 function EventLog:popEvent(eventId)
@@ -228,8 +228,8 @@ end
 function EventLog:removeLogEntry(fromBack)
 	if #self.entries == 0 then return end
 
-	local filteredIndexToRemove = iif(fromBack, 1, #filteredEntries)
-	local rawIndexToRemove = iif(fromBack, 1, #self.entries)
+	local filteredIndexToRemove = fromBack and 1 or #filteredEntries
+	local rawIndexToRemove = fromBack and 1 or #self.entries
 
 	if #filteredEntries ~= 0 and areArraysEquivalent(filteredEntries[filteredIndexToRemove], self.entries[rawIndexToRemove]) then
 		table.remove(filteredEntries, filteredIndexToRemove)
@@ -244,13 +244,13 @@ function EventLog:init()
 	-- Start with the base filters
 	self.filters = {}
 	for i = 1, #BASE_FILTERS do
-		table.insert(self.filters, BASE_FILTERS[i])
+	 self.filters[#self.filters+1] = BASE_FILTERS[i]
 	end
 
 	-- Add a combat filter for each character
 	for i = 1, 4 do
 		if party.champions[i].enabled then
-			table.insert(self.filters, "COMBAT: " .. party.champions[i].name)
+			self.filters[#self.filters+1] = "COMBAT: " .. party.champions[i].name
 		end
 	end
 
@@ -380,19 +380,14 @@ function EventLog:drawMaximizedUi()
 		filteredEntries = {}
 		for i = 1, #self.entries do
 			if self:entryMatchesFilter(self.entries[i], self.filters[self.currentFilterIndex]) then
-				table.insert(filteredEntries, self.entries[i])
+				filteredEntries[#filteredEntries+1] = self.entries[i]
 			end
 		end
 		self:calculateScrollUi(true)
 	end
 
 	-- Button - custom log entry
-	if gui:button(
-			"custom", GuiItem.logBtnCustom,
-			leftOffset + BUTTON_CUSTOM_OFFSET_X,
-			topOffset + BUTTON_CUSTOM_OFFSET_Y,
-			GuiItem.logBtnCustomHover,
-			iff(customLogText, "Cancel custom log entry.", "Add a custom log entry.")) then
+	if gui:button("custom", GuiItem.logBtnCustom, leftOffset + BUTTON_CUSTOM_OFFSET_X, topOffset + BUTTON_CUSTOM_OFFSET_Y, GuiItem.logBtnCustomHover, not customLogText and "Add a custom log entry." or "Cancel custom log entry.") then
 		if not customLogText then
 			customLogText = ""
 		else
@@ -553,7 +548,7 @@ function getPartyReachableItems()
 	local result = {}
 	for i,v in party:reachableEntities() do
 		if v.item then
-			table.insert(result, v.item)
+			result[#result+1] = v.item
 		end
 	end
 	return result
@@ -561,12 +556,12 @@ end
 
 -- Get name for the given item, including "" if the item is nil
 local function getItemName(item)
-	return iff(item, item.go.arch.name, "")
+	return item and item.go.arch.name or ""
 end
 
 -- Get counting for the given item, including 0 if the item is nil
 local function getItemCount(item)
-	return iff(item, item.count, 0)
+	return item and item.count or 0
 end
 
 -- Get the item state: type and count, of the given item (default: mouseItem) as a single value
@@ -702,7 +697,7 @@ local function logPartyXpStateChanges(oldState)
 		end
 		if collectiveGain ~= -1 then
 			EventLog:addLogEntry("STATS", collectiveGain .. " XP gained by " .. championTexts .. ".", true)
-			table.insert(xpAmountsLogged, collectiveGain)
+			xpAmountsLogged[#xpAmountsLogged+1] = collectiveGain
 		end
 	end
 end
@@ -869,7 +864,7 @@ end
 -- ITEM - shot a missile
 local orig_rangedAttackComponent_start = RangedAttackComponent.start
 function RangedAttackComponent:start(champion, slot)
-	local otherSlot = iff(slot==2, 1, 2)
+	local otherSlot = slot==1 and 2 or 1
 	local oldState = getItemState(champion:getItem(otherSlot), true)
 
 	EventLog:pushEvent("orig_rangedAttackComponent_start")
@@ -888,7 +883,7 @@ end
 -- ITEM / COMBAT - shot a firearm AND gun jamming
 local orig_firearmAttackComponent_start = FirearmAttackComponent.start
 function FirearmAttackComponent:start(champion, slot)
-	local otherSlot = iff(slot==2, 1, 2)
+	local otherSlot = slot==1 and 2 or 1
 	local oldState = getItemState(champion:getItem(otherSlot), true)
 
 	EventLog:pushEvent("orig_firearmAttackComponent_start")
@@ -1069,7 +1064,7 @@ end
 local orig_monsterComponent_onAttackedByChampion = MonsterComponent.onAttackedByChampion
 function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, dualWieldSide)
 	attackerName = champion.name
-	dualWieldText = iff(dualWieldSide == 1, " right", iff(dualWieldSide == 2, " left", ""))
+	dualWieldText = (dualWieldSide == 1) and " right" or (dualWieldSide == 2) and " left" or ""
 
 	EventLog:pushEvent("orig_monsterComponent_onAttackedByChampion")
 	local result = orig_monsterComponent_onAttackedByChampion(self, champion, weapon, attack, slot, dualWieldSide)
@@ -1141,7 +1136,7 @@ function ItemComponent:projectileHitEntity(target)
 	local result = orig_itemComponent_projectileHitEntity(self, target)
 
 	if result == "miss" or attackerName == nil then
-		local damageText = iff(result == "miss", "miss.", "$change HP.")
+		local damageText = (result == "miss") and "miss." or "$change HP."
 		local category
 		local message
 		if attackerName == nil then
@@ -1173,7 +1168,7 @@ function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, 
 	local result = orig_monsterComponent_damage(self, dmg, side, damageFlags, damageType, impactPos, heading)
 
 	if attackerName ~= nil then
-		local attackText = iff(heading == "Backstab", "backstabbed", iff(heading == "Critical", "criticaled", "attacked"))
+		local attackText = (heading == "Backstab") and "backstabbed" or (heading == "Critical") and "criticaled" or "attacked"
 		logMonsterHpChanges(oldState, self, attackerName .. dualWieldText .. " " .. attackText .. " $name" .. "... $change HP.", false, "COMBAT", isImmune)
 	end
 
@@ -1299,7 +1294,7 @@ local orig_champion_updateConditions = Champion.updateConditions
 function Champion:updateConditions()
 	local pre_conditions = {}
 	for name,_ in pairs(self.conditions) do
-		table.insert(pre_conditions, name)
+		pre_conditions[#pre_conditions+1] = name
 	end
 
 	EventLog:pushEvent("orig_champion_updateConditions")
@@ -1513,7 +1508,7 @@ end
 local orig_champion_addSkillPoints = Champion.addSkillPoints
 function Champion:addSkillPoints(amount)
 	if not isNormalSkillPointChange then -- Don't log levelups and slotting skill points
-		local plural_s = iff(amount == 1, "", "s")
+		local plural_s = amount == 1 and "" or "s"
 		EventLog:addLogEntry("STATS", self.name .. " gained " .. amount .. " skill point" .. plural_s .. ".")
 	end
 	return orig_champion_addSkillPoints(self, amount)
