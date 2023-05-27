@@ -1,27 +1,27 @@
--- A flag other scripts can check
-DEV_MODE = true
+-- Enables / disables the subsequent active features
+DEV_MODE = false
 
 -- If true, pressing the escape key will quit the app
-ESC_QUITS = false
+ESC_QUITS = true
 
 -- If true, a log file is opened.
 -- "devLog_write()" writes to this log file.  "devLog_write()" prints to console regardless.
-WRITE_DEV_LOGS_TO_FILE = false
+WRITE_DEV_LOGS_TO_FILE = true
 
 -- If set, the dungeon mod with this name will be autostarted when grimrock 2 is run.
---AUTOSTART_DUNGEON = ""
+AUTOSTART_DUNGEON = ""
 
 -- A umod listed here (instead of mods.cfg) is loaded but with all locals globalized ("\nlocal " is removed throughout).
---DEV_UMOD = ""
+DEV_UMOD = ""
+
+
+
+
 
 -- A table to store global stuff for debugging
 g = g or {}
 Config.g = g
 Config._G = _G
-
-
-
-
 
 -- A method to run lua code from "patch.lua" file (located beside "grimrock2.exe").
 function patch()
@@ -93,7 +93,7 @@ end
 
 
 -- Logic - have escape key quit the game
-if ESC_QUITS then
+if DEV_MODE and ESC_QUITS then
 	local orig_gameMode_keyPressed = GameMode.keyPressed
 	function GameMode:keyPressed(event)
 		if event.key == "escape" then
@@ -105,7 +105,7 @@ end
 
 -- Logic - log file written to by "devLog_write()".
 devLog = nil
-if WRITE_DEV_LOGS_TO_FILE then
+if DEV_MODE and WRITE_DEV_LOGS_TO_FILE then
 	devLog = io.open("devAids.log", "w")
 end
 function devLog_write(toWrite)
@@ -117,7 +117,7 @@ function devLog_write(toWrite)
 end
 
 -- Logic - load and run DEV_UMOD
-if DEV_UMOD and DEV_UMOD ~= "" then
+if DEV_MODE and DEV_UMOD and DEV_UMOD ~= "" then
 	local scriptFile = io.open(config.documentsFolder .. "/Mods/" .. (DEV_UMOD or "") .. ".lua")
 	if scriptFile == nil then
 		devLog_write("DevAids: Umod '" .. DEV_UMOD .. "' not opened.")
@@ -137,7 +137,7 @@ if DEV_UMOD and DEV_UMOD ~= "" then
 end
 
 -- Logic - autostart dungeon
-if AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
+if DEV_MODE and AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
 	local orig_gameMode_update = GameMode.update
 	function GameMode:update()
 		GameMode.update = orig_gameMode_update
