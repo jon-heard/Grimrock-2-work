@@ -4,8 +4,7 @@ DEV_MODE = false
 -- If true, pressing the escape key will quit the app
 ESC_QUITS = true
 
--- If true, a log file is opened.
--- "devLog_write()" writes to this log file.  "devLog_write()" prints to console regardless.
+-- If true, a log file is opened & "dlog()" (which prints to console) also writes to this log file.
 WRITE_DEV_LOGS_TO_FILE = true
 
 -- If set, the dungeon mod with this name will be autostarted when grimrock 2 is run.
@@ -103,16 +102,16 @@ if DEV_MODE and ESC_QUITS then
 	end
 end
 
--- Logic - log file written to by "devLog_write()".
-devLog = nil
+-- Logic - log file written to by "dlog()".
+devLogFileHandle = nil
 if DEV_MODE and WRITE_DEV_LOGS_TO_FILE then
-	devLog = io.open("devAids.log", "w")
+	devLogFileHandle = io.open("devAids.log", "w")
 end
-function devLog_write(toWrite)
+function dlog(toWrite)
 	console:print(toWrite)
-	if devLog then
-		devLog:write(tostring(toWrite) .. "\n")
-		devLog:flush()
+	if devLogFileHandle then
+		devLogFileHandle:write(tostring(toWrite) .. "\n")
+		devLogFileHandle:flush()
 	end
 end
 
@@ -120,18 +119,18 @@ end
 if DEV_MODE and DEV_UMOD and DEV_UMOD ~= "" then
 	local scriptFile = io.open(config.documentsFolder .. "/Mods/" .. (DEV_UMOD or "") .. ".lua")
 	if scriptFile == nil then
-		devLog_write("DevAids: Umod '" .. DEV_UMOD .. "' not opened.")
+		dlog("DevAids: Umod '" .. DEV_UMOD .. "' not opened.")
 	else
 		local scriptText = scriptFile:read("*all")
 		scriptFile:close()
 		scriptText = scriptText:gsub("\nlocal ", "\n")
-		devLog_write("DevAids: Loading Umod '" .. DEV_UMOD .. "'...")
+		dlog("DevAids: Loading Umod '" .. DEV_UMOD .. "'...")
 		local scriptLua, scriptLuaError = loadstring(scriptText)
 		if scriptLua == nil then
-			devLog_write("DevAids: Error on loading umod '" .. DEV_UMOD .. "': " .. scriptLuaError)
+			dlog("DevAids: Error on loading umod '" .. DEV_UMOD .. "': " .. scriptLuaError)
 		else
 			scriptLua()
-			devLog_write("DevAids: Umod '" .. DEV_UMOD .. "' successfully loaded with globalized locals.")
+			dlog("DevAids: Umod '" .. DEV_UMOD .. "' successfully loaded with globalized locals.")
 		end
 	end
 end
@@ -143,13 +142,13 @@ if DEV_MODE and AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
 		GameMode.update = orig_gameMode_update
 		local mod = modSystem:getModByGuid(AUTOSTART_DUNGEON:lower())
 		if mod then
-			devLog_write("DevAids: Loading autostart dungeon mod: \"" .. AUTOSTART_DUNGEON .. "\"...")
+			dlog("DevAids: Loading autostart dungeon mod: \"" .. AUTOSTART_DUNGEON .. "\"...")
 			modSystem:initMod(mod.guid)
 			gameMode:loadDefaultParty()
 			gameMode:startGame()
-			devLog_write("DevAids: Autostart dungeon mod loaded.")
+			dlog("DevAids: Autostart dungeon mod loaded.")
 		else
-			devLog_write("DevAids: Autostart dungeon mod not found: \"" .. AUTOSTART_DUNGEON .. "\".")
+			dlog("DevAids: Autostart dungeon mod not found: \"" .. AUTOSTART_DUNGEON .. "\".")
 		end
 	end
 end
