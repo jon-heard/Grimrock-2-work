@@ -1,5 +1,5 @@
 -- Enables / disables the subsequent active features
-DEV_MODE = false
+DEV_MODE = true
 
 -- If true, pressing the escape key will quit the app
 ESC_QUITS = true
@@ -28,7 +28,7 @@ function patch()
 end
 
 -- Function to view the keys a table holds.  Prints to console AND returns what was printed.
-function printKeys(val, page, filter, showValues)
+function printKeys(val, page, showValues, filter)
 	local result = ""
 	if type(val) ~= "table" then
 		result = result .. "The given value is " .. type(val) .. " (table expected)."
@@ -62,6 +62,25 @@ function printKeys(val, page, filter, showValues)
 	end
 	return result
 end
+
+-- Set a function to be called every "rate" seconds
+function setHeartbeatFunction(rate, fnc)
+	heartbeatFunction = fnc
+	heartbeatRate = math.max(.25, rate)
+	lastHeartbeatTime = 0
+end
+-- Call this each frame to run the heartbeat function
+function updateHeartbeat()
+	if heartbeatFunction == nil then return end
+	local currentTime = Time.currentTime
+	if currentTime - lastHeartbeatTime > heartbeatRate then
+		lastHeartbeatTime = currentTime
+		heartbeatFunction()
+	end
+end
+local heartbeatFunction = nil
+local heartbeatRate = 0
+local lastHeartbeatTime = 0
 
 -- Function to quickly quit
 function x()
