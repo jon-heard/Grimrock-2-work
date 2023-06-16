@@ -21,7 +21,7 @@ requiredMods = {}
 
 local leftColOffset = -20
 local rightColOffset = 15
-local extrasImagePath = config.documentsFolder .. "/mods/" .. "moreMapMarkers_symbols.tga"
+local extrasImagePath = config.documentsFolder .. "/mods/moreMapMarkers_symbols.tga"
 GuiItem["MapToolsExtra1"]      = { width = 32; height = 32; x = 0;   y = 0;  image = extrasImagePath }
 GuiItem["MapToolsExtra2"]      = { width = 32; height = 32; x = 32;  y = 0;  image = extrasImagePath }
 GuiItem["MapToolsExtra3"]      = { width = 32; height = 32; x = 64;  y = 0;  image = extrasImagePath }

@@ -1,17 +1,20 @@
--- Enables / disables the subsequent active features
+-- Enables / disables the subsequent active features.  Global so that other umods can use it.
 DEV_MODE = true
 
 -- If true, pressing the escape key will quit the app
-ESC_QUITS = true
+local ESC_QUITS = true
+
+-- Display mouse state
+local SHOW_MOUSE_STATS = true
 
 -- If true, a log file is opened & "dlog()" (which prints to console) also writes to this log file.
-WRITE_DEV_LOGS_TO_FILE = true
+local WRITE_DEV_LOGS_TO_FILE = true
 
 -- If set, the dungeon mod with this name will be autostarted when grimrock 2 is run.
-AUTOSTART_DUNGEON = ""
+local AUTOSTART_DUNGEON = ""
 
 -- A umod listed here (instead of mods.cfg) is loaded but with all locals globalized ("\nlocal " is removed throughout).
-DEV_UMOD = ""
+local DEV_UMOD = ""
 
 
 
@@ -25,6 +28,14 @@ Config._G = _G
 -- A method to run lua code from "patch.lua" file (located beside "grimrock2.exe").
 function patch()
 	dofile("patch.lua")
+end
+
+-- Allows printing a string with multiple lines to the console (which bugs on "console:print()")
+function console_printLines(linedText)
+	local lines = string.split(linedText, "\n")
+	for _,line in ipairs(lines) do
+		console:print(line)
+	end
 end
 
 -- Function to view the keys a table holds.  Prints to console AND returns what was printed.
@@ -56,10 +67,7 @@ function printKeys(val, page, showValues, filter)
 			end
 		end
 	end
-	local lines = string.split(result, "\n")
-	for _,v in ipairs(lines) do
-		console:print(v)
-	end
+	console_printLines(result)
 	return result
 end
 
@@ -121,22 +129,45 @@ if DEV_MODE and ESC_QUITS then
 	end
 end
 
+-- Logic - show mouse stats
+if DEV_MODE and SHOW_MOUSE_STATS then
+	local orig_sys_mousePos = sys.mousePos
+	local orig_sys_mouseDown = sys.mouseDown
+	local orig_console_draw = Console.draw
+	function Console:draw(...)
+		local result = orig_console_draw(self, ...)
+
+		local x, y = orig_sys_mousePos()
+		local left = orig_sys_mouseDown(0) and 1 or 0
+		local mid = orig_sys_mouseDown(1) and 1 or 0
+		local right = orig_sys_mouseDown(2) and 1 or 0
+		ImmediateMode.beginDraw()
+		gui:drawTextAligned(
+			x .. "x" .. y .. ", " .. left .. ", " .. mid .. ", " ..right,
+			config.width - 20, config.height - 50, "right", FontType.Default)
+		ImmediateMode.endDraw()
+
+		return result
+	end
+end
+
 -- Logic - log file written to by "dlog()".
 devLogFileHandle = nil
 if DEV_MODE and WRITE_DEV_LOGS_TO_FILE then
 	devLogFileHandle = io.open("devAids.log", "w")
 end
-function dlog(toWrite)
-	console:print(toWrite)
+function dlog(toLog)
+	toLog = tostring(toLog)
+	console:print(toLog)
 	if devLogFileHandle then
-		devLogFileHandle:write(tostring(toWrite) .. "\n")
+		devLogFileHandle:write(tostring(toLog) .. "\n")
 		devLogFileHandle:flush()
 	end
 end
 
 -- Logic - load and run DEV_UMOD
 if DEV_MODE and DEV_UMOD and DEV_UMOD ~= "" then
-	local scriptFile = io.open(config.documentsFolder .. "/Mods/" .. (DEV_UMOD or "") .. ".lua")
+	local scriptFile = io.open(config.documentsFolder .. "/Mods/" .. (DEV_UMOD or ""))
 	if scriptFile == nil then
 		dlog("DevAids: Umod '" .. DEV_UMOD .. "' not opened.")
 	else
@@ -154,6 +185,12 @@ if DEV_MODE and DEV_UMOD and DEV_UMOD ~= "" then
 	end
 end
 
+-- One extra log to separate init logs from user logs
+function initLogsFinished()
+	dlog("----------------")
+	dlog("")
+end
+
 -- Logic - autostart dungeon
 if DEV_MODE and AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
 	local orig_gameMode_update = GameMode.update
@@ -169,5 +206,8 @@ if DEV_MODE and AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
 		else
 			dlog("DevAids: Autostart dungeon mod not found: \"" .. AUTOSTART_DUNGEON .. "\".")
 		end
+		initLogsFinished()
 	end
+elseif DEV_MODE then
+	initLogsFinished()
 end

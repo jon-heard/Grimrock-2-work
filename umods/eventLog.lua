@@ -40,7 +40,7 @@ local MAX_WIN_WIDTH = 550
 local MAX_WIN_HEIGHT = 652
 local MAX_WIN_OFFSET = 2
 local TITLE_OFFSET_X = 271
-local TITLE_OFFSET_Y = 19
+local TITLE_OFFSET_Y = 47
 local FILTER_OFFSET_X = 79
 local FILTER_OFFSET_Y = 563
 local FILTER_WIDTH = 243
@@ -56,7 +56,7 @@ local SCROLL_WIDTH = 458
 local SCROLL_HEIGHT = 446
 local SCROLL_TEXT_OFFSET_X = 5
 local SCROLL_TEXT_OFFSET_Y = 19
-local CATEGORY_WIDTH = 83
+local CATEGORY_WIDTH = 85
 local BASE_FILTERS = { "EFFECT", "ACTION", "ITEM", "STATS", "CUSTOM", "ALL", "COMBAT" }
 local INDEX_OF_ALL_FILTER = 6
 local RECIPROCAL_TYPES = { { "taken from", "given to" }, { "held in", "removed from" }, { "worn on", "removed from" } }
@@ -144,7 +144,7 @@ function Gui:comboBox_customWidth(id, x, y, width, value, choices, style, toolti
 		soundSystem:playSound2D("click_down")
 	end
 
-	local font = FontType.PalatinoSmall
+	local font = FontType.PalatinoTinyScaled
 	local color = Color.White
 	if style == "disabled" then color = {100,100,100,255} end
 	gui:drawTextCentered(choices[value], x + width/2 - leftSideOffset, y + 15, font, color)
@@ -343,9 +343,9 @@ function EventLog:drawMinimizedUi()
 
 	-- Text
 	if customLogText then
-		gui:drawText(customLogText .. "_", MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y)
+		gui:drawText(customLogText .. "_", MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y, FontType.PalatinoTinyScaled)
 	elseif #filteredEntries > 0 then
-		gui:drawText(filteredEntries[#filteredEntries][1] .. ":  " .. filteredEntries[#filteredEntries][2], MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y)
+		gui:drawText(filteredEntries[#filteredEntries][1] .. ":  " .. filteredEntries[#filteredEntries][2], MIN_WIN_LEFT + PADDING * 2 + MIN_TEXT_OFFSET_X, MIN_WIN_BOTTOM - PADDING * 2 + MIN_TEXT_OFFSET_Y, FontType.PalatinoTinyScaled)
 	end
 
 	-- Button (open)
@@ -371,7 +371,7 @@ function EventLog:drawMaximizedUi()
 	gui:drawGuiItem(GuiItem.logMaxBack, leftOffset, topOffset)
 
 	-- Title
-	gui:drawTextCentered("Event log", leftOffset + TITLE_OFFSET_X, topOffset + TITLE_OFFSET_Y, FontType.MenuSmall)
+	gui:drawTextCentered("Event Log", leftOffset + TITLE_OFFSET_X, topOffset + TITLE_OFFSET_Y, FontType.PalatinoLargeScaled)
 
 	-- Combo - filter
 	local newFilterIndex = gui:comboBox_customWidth("logFilter", leftOffset + FILTER_OFFSET_X, topOffset + FILTER_OFFSET_Y, FILTER_WIDTH, self.currentFilterIndex, self.filters, nil, "Filter the log by event type.")
@@ -419,8 +419,8 @@ function EventLog:drawMaximizedUi()
 	-- Draw the log entries
 	local listOffset = 0
 	for i= 1, #filteredEntries do
-		gui:drawText(filteredEntries[i][1], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y)
-		gui:drawText(filteredEntries[i][2], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X + CATEGORY_WIDTH, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y)
+		gui:drawText(filteredEntries[i][1], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y, FontType.PalatinoTinyScaled)
+		gui:drawText(filteredEntries[i][2], leftOffset + SCROLL_OFFSET_X + SCROLL_TEXT_OFFSET_X + CATEGORY_WIDTH, topOffset - scrollSmooth + listOffset + SCROLL_OFFSET_Y + SCROLL_TEXT_OFFSET_Y, FontType.PalatinoTinyScaled)
 		listOffset = listOffset + FULL_TEXT_HEIGHT
 	end
 
@@ -436,6 +436,7 @@ end
 -- These are overridden to render eventlog's ui
 local orig_gui_draw = Gui.draw
 function Gui:draw()
+	self:setGuiScaling(self.uiScaleFactor, 0, config.height)
 	EventLog:drawUi(true) -- Draw EventLog before the rest so that tooltips show over it
 	return orig_gui_draw(self)
 end
@@ -502,7 +503,7 @@ function GameMode:keyPressed(event)
 		elseif event.key == 'backspace' and #customLogText > 0 then
 			customLogText = customLogText:sub(1, #customLogText - 1)
 			return
-		elseif event.char and FontType.PalatinoSmall:isPrintable(event.char) and #customLogText < 200 then
+		elseif event.char and FontType.PalatinoSmallScaled:isPrintable(event.char) and #customLogText < 200 then
 			customLogText = customLogText .. event.char
 			return
 		end
@@ -766,7 +767,7 @@ function CharSheet:slotClicked(owner, button, slot)
 		end
 		if inSlot ~= "" then
 			if slot <= 2 then
-				EventLog:addLogEntry("ITEM", inSlot .. " held in " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
+				EventLog:addLogEntry("ITEM", inSlot .. " put in " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
 			elseif slot <= #SLOT_NAMES then
 				EventLog:addLogEntry("ITEM", inSlot .. " worn on " .. championName .. "'s " .. SLOT_NAMES[slot] .. ".")
 			else
