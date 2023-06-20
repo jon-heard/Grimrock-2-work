@@ -95,6 +95,35 @@ function x()
 	sys.exit()
 end
 
+-- Easily view any RenderableTexture.  Assign it to "g.seeTex" and it will be drawn to the screen.
+-- Optional params:
+--   - g.seeTex_scale - Draw the texture at a scale other than 1.0
+--   - g.seeTex_rect - Draw only a section of the texture
+--   - g.seeTex_pos - Draw the texture at a position other than the top-left of the screen
+local orig_gui_draw = Gui.draw
+function Gui:draw(...)
+	local result = orig_gui_draw(self, ...)
+	if type(g.seeTex) == "userdata" then
+		local scale = 1
+		local rect = { 0, 0, g.seeTex:getWidth(), g.seeTex:getHeight() }
+		local position = { 0, 0 }
+		if type(g.seeTex_scale) == "number" then
+			scale = g.seeTex_scale
+		end
+		if type(g.seeTex_rect) == "table" then
+			rect = g.seeTex_rect
+		end
+		if type(g.seeTex_pos) == "table" then
+			position = g.seeTex_pos
+		end
+		ImmediateMode.beginDraw()
+		ImmediateMode.drawImage(
+			g.seeTex,  position[1],position[2],  rect[1],rect[2],  rect[3],rect[4],  rect[3]*scale,rect[4]*scale,  Color.White)
+		ImmediateMode.endDraw()
+	end
+	return result
+end
+
 -- Draw primitive objects to the scene
 function drawSphereObject(sphere, color, transform)
 	color = color or Color.White
