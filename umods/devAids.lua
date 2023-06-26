@@ -150,22 +150,23 @@ end
 -- Logic - have escape key quit the game
 if DEV_MODE and ESC_QUITS then
 	local orig_gameMode_keyPressed = GameMode.keyPressed
-	function GameMode:keyPressed(event)
-		if event.key == "escape" then
+	function GameMode:keyPressed(event, ...)
+		if event.key == "escape" and not event.isInjected then
 			sys.exit()
 		end
-		return orig_gameMode_keyPressed(self, event)
+		return orig_gameMode_keyPressed(self, event, ...)
 	end
 end
 
 -- Logic - show mouse stats
 if DEV_MODE and SHOW_MOUSE_STATS then
+	-- Copy these methods as they could be overridden later (they are by VR)
 	local orig_sys_mousePos = sys.mousePos
 	local orig_sys_mouseDown = sys.mouseDown
+
+	-- Override Console:draw simply as something that draws regularly
 	local orig_console_draw = Console.draw
 	function Console:draw(...)
-		local result = orig_console_draw(self, ...)
-
 		local x, y = orig_sys_mousePos()
 		local left = orig_sys_mouseDown(0) and 1 or 0
 		local mid = orig_sys_mouseDown(1) and 1 or 0
@@ -176,7 +177,7 @@ if DEV_MODE and SHOW_MOUSE_STATS then
 			config.width - 20, config.height - 50, "right", FontType.Default)
 		ImmediateMode.endDraw()
 
-		return result
+		return orig_console_draw(self, ...)
 	end
 end
 
@@ -223,8 +224,7 @@ end
 -- Logic - autostart dungeon
 if DEV_MODE and AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
 	local orig_gameMode_update = GameMode.update
-	function GameMode:update()
-		GameMode.update = orig_gameMode_update
+	function GameMode:update(...)
 		local mod = modSystem:getModByGuid(AUTOSTART_DUNGEON:lower())
 		if mod then
 			dlog("DevAids: Loading autostart dungeon mod: \"" .. AUTOSTART_DUNGEON .. "\"...")
@@ -236,6 +236,10 @@ if DEV_MODE and AUTOSTART_DUNGEON and AUTOSTART_DUNGEON ~= "" then
 			dlog("DevAids: Autostart dungeon mod not found: \"" .. AUTOSTART_DUNGEON .. "\".")
 		end
 		initLogsFinished()
+
+		-- only needed the function once
+		GameMode.update = orig_gameMode_update
+		GameMode.update(self, ...)
 	end
 elseif DEV_MODE then
 	initLogsFinished()

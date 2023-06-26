@@ -435,51 +435,51 @@ end
 
 -- These are overridden to render eventlog's ui
 local orig_gui_draw = Gui.draw
-function Gui:draw()
+function Gui:draw(...)
 	self:setGuiScaling(self.uiScaleFactor, 0, config.height)
 	EventLog:drawUi(true) -- Draw EventLog before the rest so that tooltips show over it
-	return orig_gui_draw(self)
+	return orig_gui_draw(self, ...)
 end
 local orig_pauseMenu_update = PauseMenu.update
-function PauseMenu:update()
-	local result = orig_pauseMenu_update(self)
+function PauseMenu:update(...)
+	local result = orig_pauseMenu_update(self, ...)
 	EventLog:drawUi() -- Draw EventLog after the rest so that it's on top of the dimmer
 	return result
 end
 local orig_mainMenu_update = MainMenu.update
-function MainMenu:update()
+function MainMenu:update(...)
 	if #EventLog.filters > 0 then
 		EventLog:drawUi()
 	end
-	return orig_mainMenu_update(self)
+	return orig_mainMenu_update(self, ...)
 end
 
 -- These overrides are all to populate the filters based on champion names
 local orig_gameMode_newGame = GameMode.newGame
-function GameMode:newGame()
+function GameMode:newGame(...)
 	EventLog.filters = {} -- Disable filters while setting up the characters
-	local result = orig_gameMode_newGame(self)
+	local result = orig_gameMode_newGame(self, ...)
 	EventLog:init()
 	return result
 end
 local orig_gameMode_loadGame = GameMode.loadGame
-function GameMode:loadGame(filename)
+function GameMode:loadGame(...)
 	EventLog.filters = {} -- Disable filters while setting up the characters
-	local result = orig_gameMode_loadGame(self, filename)
+	local result = orig_gameMode_loadGame(self, ...)
 	EventLog:init()
 	return result
 end
 local orig_champion_setEnabled = Champion.setEnabled
-function Champion:setEnabled(enabled)
+function Champion:setEnabled(...)
 	EventLog.filters = {} -- Disable filters while setting up the characters
-	local result = orig_champion_setEnabled(self, enabled)
+	local result = orig_champion_setEnabled(self, ...)
 	EventLog:init()
 	return result
 end
 local orig_dungeonEditor_playPreview = DungeonEditor.playPreview
-function DungeonEditor:playPreview()
+function DungeonEditor:playPreview(...)
 	EventLog.filters = {} -- Disable filters while setting up the characters
-	local result = orig_dungeonEditor_playPreview(self)
+	local result = orig_dungeonEditor_playPreview(self, ...)
 	-- Party can be nil if run-game button is hit without a dungeon loaded
 	if party ~= nil then
 		EventLog:init()
@@ -491,7 +491,7 @@ end
 -- "O" key will toggle maximizing the event log
 -- While in custom log entry mode, many keystrokes are used for the text entry
 local orig_gameMode_keyPressed = GameMode.keyPressed
-function GameMode:keyPressed(event)
+function GameMode:keyPressed(event, ...)
 	if customLogText then
 		if event.key == 'enter' then
 			EventLog:addLogEntry("CUSTOM", customLogText, true)
@@ -514,10 +514,9 @@ function GameMode:keyPressed(event)
 		end
 		if event.key == "O" then
 			EventLog.isUiMaximized = not EventLog.isUiMaximized
-			return
 		end
 	end
-	return orig_gameMode_keyPressed(self, event)
+	return orig_gameMode_keyPressed(self, event, ...)
 end
 
 
@@ -725,9 +724,9 @@ end
 -------------------
 -- ITEM - Consumed
 local orig_usableItemComponent_onUseItem = UsableItemComponent.onUseItem
-function UsableItemComponent:onUseItem(champion)
+function UsableItemComponent:onUseItem(champion, ...)
 	EventLog:pushEvent("orig_usableItemComponent_onUseItem")
-	local result = orig_usableItemComponent_onUseItem(self, champion)
+	local result = orig_usableItemComponent_onUseItem(self, champion, ...)
 
 	if result then
 		EventLog:addLogEntry("ITEM", champion.name .. " consumed " .. getItemDisplayName(self.go.item) .. ".")
@@ -739,20 +738,20 @@ end
 
 -- ITEM - Add to inventory
 local orig_champion_addToBackpack = Champion.addToBackpack
-function Champion:addToBackpack(item, autoEquip)
+function Champion:addToBackpack(item, ...)
 	EventLog:addLogEntry("ITEM", getItemDisplayName(item) .. " given to " .. self.name .. ".")
-	return orig_champion_addToBackpack(self, item, autoEquip)
+	return orig_champion_addToBackpack(self, item, ...)
 end
 
 local SLOT_NAMES = { "right hand", "left hand", "head", "torso", "legs", "feet", "back", "neck", "hands", "wrist" }
 
 -- ITEM - added to or removed from item slot
 local orig_charSheet_slotClicked = CharSheet.slotClicked
-function CharSheet:slotClicked(owner, button, slot)
+function CharSheet:slotClicked(owner, button, slot, ...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_charSheet_slotClicked")
-	local result = orig_charSheet_slotClicked(self, owner, button, slot)
+	local result = orig_charSheet_slotClicked(self, owner, button, slot, ...)
 
 	if itemStateHasChanged(oldState) then
 		local newState = getItemState()
@@ -789,11 +788,11 @@ end
 
 -- ITEM - consumed to pick chest
 local orig_chestComponent_onClick = ChestComponent.onClick
-function ChestComponent:onClick()
+function ChestComponent:onClick(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_chestComponent_onClick")
-	local result = orig_chestComponent_onClick(self)
+	local result = orig_chestComponent_onClick(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
@@ -807,11 +806,11 @@ end
 
 -- ITEM - consumed to unlock a lock
 local orig_lockComponent_onclick = LockComponent.onClick
-function LockComponent:onClick()
+function LockComponent:onClick(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_lockComponent_onclick")
-	local result = orig_lockComponent_onclick(self)
+	local result = orig_lockComponent_onclick(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
@@ -825,11 +824,11 @@ end
 
 -- ITEM - dropped
 local orig_itemComponent_dropItemToFloor = ItemComponent.dropItemToFloor
-function ItemComponent:dropItemToFloor(x, y)
+function ItemComponent:dropItemToFloor(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_itemComponent_dropItemToFloor")
-	local result = orig_itemComponent_dropItemToFloor(self, x, y)
+	local result = orig_itemComponent_dropItemToFloor(self, ...)
 
 	if result then
 		EventLog:addLogEntry("ITEM", getItemStateDisplayName(oldState) .. " dropped.")
@@ -841,11 +840,11 @@ end
 
 -- ITEM - thrown
 local orig_itemComponent_dragItemToThrowZone = ItemComponent.dragItemToThrowZone
-function ItemComponent:dragItemToThrowZone(x, y)
+function ItemComponent:dragItemToThrowZone(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_itemComponent_dragItemToThrowZone")
-	local result = orig_itemComponent_dragItemToThrowZone(self, x, y)
+	local result = orig_itemComponent_dragItemToThrowZone(self, ...)
 
 	if result then
 		EventLog:addLogEntry("ITEM", gameMode:getActiveChampion().name .. " threw " .. getItemStateDisplayName(oldState) .. ".")
@@ -864,12 +863,12 @@ end
 
 -- ITEM - shot a missile
 local orig_rangedAttackComponent_start = RangedAttackComponent.start
-function RangedAttackComponent:start(champion, slot)
+function RangedAttackComponent:start(champion, slot, ...)
 	local otherSlot = slot==1 and 2 or 1
 	local oldState = getItemState(champion:getItem(otherSlot), true)
 
 	EventLog:pushEvent("orig_rangedAttackComponent_start")
-	local result = orig_rangedAttackComponent_start(self, champion, slot)
+	local result = orig_rangedAttackComponent_start(self, champion, slot, ...)
 
 	if itemStateHasChanged(oldState, champion:getItem(otherSlot), true) then
 		local state = getItemState(champion:getItem(otherSlot), true)
@@ -883,12 +882,12 @@ end
 
 -- ITEM / COMBAT - shot a firearm AND gun jamming
 local orig_firearmAttackComponent_start = FirearmAttackComponent.start
-function FirearmAttackComponent:start(champion, slot)
+function FirearmAttackComponent:start(champion, slot, ...)
 	local otherSlot = slot==1 and 2 or 1
 	local oldState = getItemState(champion:getItem(otherSlot), true)
 
 	EventLog:pushEvent("orig_firearmAttackComponent_start")
-	local result = orig_firearmAttackComponent_start(self, champion, slot)
+	local result = orig_firearmAttackComponent_start(self, champion, slot, ...)
 
 	if champion:getItem(slot):getJammed() then
 		EventLog:addLogEntry("COMBAT", champion.name .. "'s gun jammed.")
@@ -902,11 +901,11 @@ end
 
 -- ITEM - taken
 local orig_itemComponent_onClickComponent = ItemComponent.onClickComponent
-function ItemComponent:onClickComponent()
+function ItemComponent:onClickComponent(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_itemComponent_onClickComponent")
-	local result = orig_itemComponent_onClickComponent(self)
+	local result = orig_itemComponent_onClickComponent(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
@@ -919,11 +918,11 @@ end
 
 -- ITEM - taken as a fish
 local orig_smallFishControllerComponent_onClick = SmallFishControllerComponent.onClick
-function SmallFishControllerComponent:onClick()
+function SmallFishControllerComponent:onClick(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_smallFishControllerComponent_onClick")
-	local result = orig_smallFishControllerComponent_onClick(self)
+	local result = orig_smallFishControllerComponent_onClick(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		EventLog:addLogEntry("ITEM", "Silver roach taken.")
@@ -939,12 +938,12 @@ end
 local autoPickupHappening = false
 local autoPickupCounter = { {"", 0}, {"", 0}, {"", 0}, {"", 0} }
 local orig_partyComponent_pickUpAmmo = PartyComponent.pickUpAmmo
-function PartyComponent:pickUpAmmo()
+function PartyComponent:pickUpAmmo(...)
 	autoPickupCounter = { {"", 0}, {"", 0}, {"", 0}, {"", 0} }
 	autoPickupHappening = true
 
 	EventLog:pushEvent("orig_partyComponent_pickUpAmmo")
-	local result = orig_partyComponent_pickUpAmmo(self)
+	local result = orig_partyComponent_pickUpAmmo(self, ...)
 
 	autoPickupHappening = false
 	-- log all auto-pickups
@@ -958,9 +957,9 @@ function PartyComponent:pickUpAmmo()
 	return result
 end
 local orig_champion_autoPickUp = Champion.autoPickUp
-function Champion:autoPickUp(item)
+function Champion:autoPickUp(item, ...)
 	EventLog:pushEvent("orig_champion_autoPickUp")
-	local result = orig_champion_autoPickUp(self, item)
+	local result = orig_champion_autoPickUp(self, item, ...)
 
 	if result == true then
 		autoPickupCounter[self.championIndex][1] = getItemName(item)
@@ -973,11 +972,11 @@ end
 
 -- ITEM - placed in socket
 local orig_socketComponent_onClick = SocketComponent.onClick
-function SocketComponent:onClick()
+function SocketComponent:onClick(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_socketComponent_onClick")
-	local result = orig_socketComponent_onClick(self)
+	local result = orig_socketComponent_onClick(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		EventLog:addLogEntry("ITEM", getItemStateDisplayName(oldState) .. " placed in " .. self.go.arch.name .. ".")
@@ -989,11 +988,11 @@ end
 
 -- ITEM - placed on surface
 local orig_surfaceComponent_onClick = SurfaceComponent.onClick
-function SurfaceComponent:onClick(button, x, y)
+function SurfaceComponent:onClick(...)
 	local oldState = getItemState()
 
 	EventLog:pushEvent("orig_surfaceComponent_onClick")
-	local result = orig_surfaceComponent_onClick(self, button, x, y)
+	local result = orig_surfaceComponent_onClick(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		EventLog:addLogEntry("ITEM", getItemStateDisplayName(oldState) .. " placed on " .. self.go.arch.name .. ".")
@@ -1005,12 +1004,12 @@ end
 
 -- ITEM - Potion brewed
 local orig_craftPotionComponent_brewPotion = CraftPotionComponent.brewPotion
-function CraftPotionComponent:brewPotion(champion)
+function CraftPotionComponent:brewPotion(...)
 	local oldState = getItemState()
 	local oldGroundItems = getPartyReachableItems()
 
 	EventLog:pushEvent("orig_craftPotionComponent_brewPotion")
-	local result = orig_craftPotionComponent_brewPotion(self, champion)
+	local result = orig_craftPotionComponent_brewPotion(self, ...)
 
 	if itemStateHasChanged(oldState) then
 		local state = getItemState()
@@ -1049,26 +1048,26 @@ function TileDamagerComponent:setCastByChampion(caster)
 	end
 end
 local orig_monsterComponent_throwItem = MonsterComponent.throwItem
-function MonsterComponent:throwItem(item, height, attackPower, originNode)
-	local result = orig_monsterComponent_throwItem(self, item, height, attackPower, originNode)
+function MonsterComponent:throwItem(...)
+	local result = orig_monsterComponent_throwItem(self, ...)
 	result.thrownByMonster = self
 	return result
 end
 local orig_monsterComponent_shootProjectile = MonsterComponent.shootProjectile
-function MonsterComponent:shootProjectile(projectile, height, attackPower, originNode)
-	local result = orig_monsterComponent_shootProjectile(self, projectile, height, attackPower, originNode)
+function MonsterComponent:shootProjectile(...)
+	local result = orig_monsterComponent_shootProjectile(self, ...)
 	result.projectile:setCastByChampion(self)
 	return result
 end
 
 -- COMBAT - Party melee attack.  Store attack data for the log created by "MonsterComponent:damage()".
 local orig_monsterComponent_onAttackedByChampion = MonsterComponent.onAttackedByChampion
-function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, dualWieldSide)
+function MonsterComponent:onAttackedByChampion(champion, weapon, attack, slot, dualWieldSide, ...)
 	attackerName = champion.name
 	dualWieldText = (dualWieldSide == 1) and " right" or (dualWieldSide == 2) and " left" or ""
 
 	EventLog:pushEvent("orig_monsterComponent_onAttackedByChampion")
-	local result = orig_monsterComponent_onAttackedByChampion(self, champion, weapon, attack, slot, dualWieldSide)
+	local result = orig_monsterComponent_onAttackedByChampion(self, champion, weapon, attack, slot, dualWieldSide, ...)
 
 	if result == "miss" then
 		EventLog:addLogEntry("COMBAT", champion.name .. dualWieldText .. " attacked " .. self.go.arch.name .. "... miss.")
@@ -1081,11 +1080,11 @@ end
 
 -- COMBAT - Monster melee attack.  Store attack data for the log created by "Champion:damage()".
 local orig_monsterAttackComponent_attackParty = MonsterAttackComponent.attackParty
-function MonsterAttackComponent:attackParty()
+function MonsterAttackComponent:attackParty(...)
 	attackerName = self.go.arch.name
 
 	EventLog:pushEvent("orig_monsterAttackComponent_attackParty")
-	local result = orig_monsterAttackComponent_attackParty(self)
+	local result = orig_monsterAttackComponent_attackParty(self, ...)
 
 	attackerName = nil
 
@@ -1095,7 +1094,7 @@ end
 
 -- COMBAT - AOE/spell attack (tile damager).  Store attack data for the log created by "monster/champion:damage()".
 local orig_damageTime = damageTile
-function damageTile(map, x, y, direction, elevation, damageFlags, damageType, power, screenEffect, hitCallback, hitContext)
+function damageTile(map, x, y, direction, elevation, damageFlags, damageType, power, screenEffect, hitCallback, hitContext, ...)
 	if hitContext then
 		if hitContext.castByChampion then
 			attackerName = party.champions[hitContext.castByChampion].name
@@ -1107,7 +1106,7 @@ function damageTile(map, x, y, direction, elevation, damageFlags, damageType, po
 	end
 
 	EventLog:pushEvent("orig_damageTime")
-	local result = orig_damageTime(map, x, y, direction, elevation, damageFlags, damageType, power, screenEffect, hitCallback, hitContext)
+	local result = orig_damageTime(map, x, y, direction, elevation, damageFlags, damageType, power, screenEffect, hitCallback, hitContext, ...)
 
 	attackerName = nil
 
@@ -1117,7 +1116,7 @@ end
 
 -- COMBAT / EFFECT - Projectile damage.  If an attack, store attack data for the log created by "monster/champion:damage()".
 local orig_itemComponent_projectileHitEntity = ItemComponent.projectileHitEntity
-function ItemComponent:projectileHitEntity(target)
+function ItemComponent:projectileHitEntity(target, ...)
 	local oldState
 	if target.monster then
 		oldState = getMonsterHpState(target.monster)
@@ -1134,7 +1133,7 @@ function ItemComponent:projectileHitEntity(target)
 	end
 
 	EventLog:pushEvent("orig_itemComponent_projectileHitEntity")
-	local result = orig_itemComponent_projectileHitEntity(self, target)
+	local result = orig_itemComponent_projectileHitEntity(self, target, ...)
 
 	if result == "miss" or attackerName == nil then
 		local damageText = (result == "miss") and "miss." or "$change HP."
@@ -1161,12 +1160,12 @@ end
 
 -- COMBAT - All attacks on monsters are logged here.  Attack data comes from earlier functions.
 local orig_monsterComponent_damage = MonsterComponent.damage
-function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, heading)
+function MonsterComponent:damage(dmg, side, damageFlags, damageType, impactPos, heading, ...)
 	local oldState = getMonsterHpState(self)
 	local isImmune = (self:getResistance(damageType) == "immune")
 
 	EventLog:pushEvent("orig_monsterComponent_damage")
-	local result = orig_monsterComponent_damage(self, dmg, side, damageFlags, damageType, impactPos, heading)
+	local result = orig_monsterComponent_damage(self, dmg, side, damageFlags, damageType, impactPos, heading, ...)
 
 	if attackerName ~= nil then
 		local attackText = (heading == "Backstab") and "backstabbed" or (heading == "Critical") and "criticaled" or "attacked"
@@ -1179,11 +1178,11 @@ end
 
 -- COMBAT - All attacks on party are logged here.  Attack data comes from earlier functions.
 local orig_champion_damage = Champion.damage
-function Champion:damage(dmg, damageType)
+function Champion:damage(...)
 	local oldState = getPartyHpState()
 
 	EventLog:pushEvent("orig_champion_damage")
-	local result = orig_champion_damage(self, dmg, damageType)
+	local result = orig_champion_damage(self, ...)
 
 	if attackerName ~= nil then
 		logPartyHpStateChanges(oldState, attackerName .. " attacked $name... $change HP.", false, "COMBAT")
@@ -1195,12 +1194,12 @@ end
 
 -- COMBAT / STATS - Monster death AND ensuing xp
 local orig_monsterComponent_die = MonsterComponent.die
-function MonsterComponent:die(gainExp)
+function MonsterComponent:die(...)
 	isMonitoringXp = true
 	local oldState = getPartyXpState()
 
 	EventLog:pushEvent("orig_monsterComponent_die")
-	local result = orig_monsterComponent_die(self, gainExp)
+	local result = orig_monsterComponent_die(self, ...)
 
 	logPartyXpStateChanges(oldState)
 	isMonitoringXp = false
@@ -1212,11 +1211,11 @@ end
 
 -- EFFECT - health gain
 local orig_champion_regainHealth = Champion.regainHealth
-function Champion:regainHealth(amount)
+function Champion:regainHealth(...)
 	local oldState = getPartyHpState()
 
 	EventLog:pushEvent("orig_champion_regainHealth")
-	local result = orig_champion_regainHealth(self, amount)
+	local result = orig_champion_regainHealth(self, ...)
 
 	logPartyHpStateChanges(oldState, "$name healed... $change HP.")
 
@@ -1226,11 +1225,11 @@ end
 
 -- EFFECT - energy gain
 local orig_champion_regainEnergy = Champion.regainEnergy
-function Champion:regainEnergy(amount)
+function Champion:regainEnergy(...)
 	local oldState = getPartyEpState()
 
 	EventLog:pushEvent("orig_champion_regainEnergy")
-	local result = orig_champion_regainEnergy(self, amount)
+	local result = orig_champion_regainEnergy(self, ...)
 
 	logPartyEpStateChanges(oldState, "$name energized... $change EP.")
 
@@ -1240,18 +1239,18 @@ end
 
 -- EFFECT - condition added to champion
 local orig_champion_setCondition = Champion.setCondition
-function Champion:setCondition(name, value, forceLog)
+function Champion:setCondition(name, value, forceLog, ...)
 	-- Don't log level-up condition.  Poisoned is checked separately (to include the damage).
 	-- Empty champion name & condition="death" is a side-effect of game ending.  Don't log it.
 	if (name == "level_up") or
 	   (name == "poison" and value == true) or
 	   (self.name == "" and name == "dead") then
-		return orig_champion_setCondition(self, name, value)
+		return orig_champion_setCondition(self, name, value, ...)
 	end
 	local pre_condition = self:hasCondition(name)
 
 	EventLog:pushEvent("orig_champion_setCondition")
-	local result = orig_champion_setCondition(self, name, value)
+	local result = orig_champion_setCondition(self, name, value, ...)
 
 	if self:hasCondition(name) == pre_condition and not forceLog then
 		-- Nothing happened, don't log unless forced
@@ -1292,14 +1291,14 @@ end
 
 -- EFFECT - Timed conditions aren't removed through "Champion:setCondition()" (above).  This calls it for them to create the log.
 local orig_champion_updateConditions = Champion.updateConditions
-function Champion:updateConditions()
+function Champion:updateConditions(...)
 	local pre_conditions = {}
 	for name,_ in pairs(self.conditions) do
 		pre_conditions[#pre_conditions+1] = name
 	end
 
 	EventLog:pushEvent("orig_champion_updateConditions")
-	local result = orig_champion_updateConditions(self)
+	local result = orig_champion_updateConditions(self, ...)
 
 	for _,name in ipairs(pre_conditions) do
 		local found = false
@@ -1323,11 +1322,11 @@ end
 
 -- EFFECT - Condition added to monster
 local orig_monsterComponent_setCondition = MonsterComponent.setCondition
-function MonsterComponent:setCondition(condition, duration)
+function MonsterComponent:setCondition(condition, ...)
 	local pre_hasCondition = self:hasCondition(condition)
 
 	EventLog:pushEvent("orig_monsterComponent_setCondition")
-	local result = orig_monsterComponent_setCondition(self, condition, duration)
+	local result = orig_monsterComponent_setCondition(self, condition, ...)
 
 	if not pre_hasCondition and self:hasCondition(condition) then
 		if condition == "burning" then condition = "set on fire"
@@ -1342,11 +1341,11 @@ end
 
 -- EFFECT - drowning
 local orig_partyComponent_updateDiving = PartyComponent.updateDiving
-function PartyComponent:updateDiving()
+function PartyComponent:updateDiving(...)
 	local oldState = getPartyHpState()
 
 	EventLog:pushEvent("orig_partyComponent_updateDiving")
-	local result = orig_partyComponent_updateDiving(self)
+	local result = orig_partyComponent_updateDiving(self, ...)
 
 	logPartyHpStateChanges(oldState, "$name is drowning... $change HP.")
 
@@ -1356,11 +1355,11 @@ end
 
 -- EFFECT - Falling
 local orig_partyComponent_onFallingImpact = PartyComponent.onFallingImpact
-function PartyComponent:onFallingImpact(velocity, distanceFallen)
+function PartyComponent:onFallingImpact(...)
 	local oldState = getPartyHpState()
 
 	EventLog:pushEvent("orig_partyComponent_onFallingImpact")
-	result = orig_partyComponent_onFallingImpact(self, velocity, distanceFallen)
+	result = orig_partyComponent_onFallingImpact(self, ...)
 
 	logPartyHpStateChanges(oldState, "$name fell... $change HP.")
 
@@ -1370,11 +1369,11 @@ end
 
 -- EFFECT - Poison
 local orig_poisonCondition_tick = PoisonCondition.tick
-function PoisonCondition:tick(champion)
+function PoisonCondition:tick(...)
 	local oldState = getPartyHpState()
 
 	EventLog:pushEvent("orig_poisonCondition_tick")
-	local result = orig_poisonCondition_tick(self, champion)
+	local result = orig_poisonCondition_tick(self, ...)
 
 	logPartyHpStateChanges(oldState, "$name is poisoned... $change HP.")
 
@@ -1384,46 +1383,46 @@ end
 
 -- ACTION - Button
 local orig_buttonComponent_onClick = ButtonComponent.onClick
-function ButtonComponent:onClick()
+function ButtonComponent:onClick(...)
 	EventLog:addLogEntry("ACTION", "Button clicked.")
-	return orig_buttonComponent_onClick(self)
+	return orig_buttonComponent_onClick(self, ...)
 end
 
 -- ACTION - Floor trigger
 local orig_floorTriggerComponent_activate = FloorTriggerComponent.activate
-function FloorTriggerComponent:activate()
+function FloorTriggerComponent:activate(...)
 	if self.pressurePlate then
 		EventLog:addLogEntry("ACTION", "Pressure plate triggered.")
 	end
-	return orig_floorTriggerComponent_activate(self)
+	return orig_floorTriggerComponent_activate(self, ...)
 end
 local orig_floorTriggerComponent_deactivate = FloorTriggerComponent.deactivate
-function FloorTriggerComponent:deactivate()
+function FloorTriggerComponent:deactivate(...)
 	if self.pressurePlate then
 		EventLog:addLogEntry("ACTION", "Pressure plate untriggered.")
 	end
-	return orig_floorTriggerComponent_deactivate(self)
+	return orig_floorTriggerComponent_deactivate(self, ...)
 end
 
 -- ACTION - Lever
 local orig_leverComponent_toggle = LeverComponent.toggle
-function LeverComponent:toggle()
+function LeverComponent:toggle(...)
 	if self.activated then
 		EventLog:addLogEntry("ACTION", "Lever deactivated.")
 	else
 		EventLog:addLogEntry("ACTION", "Lever activated.")
 	end
-	return orig_leverComponent_toggle(self)
+	return orig_leverComponent_toggle(self, ...)
 end
 
 -- ACTION - Rest and rest-based actions begun
 local orig_partyComponent_rest = PartyComponent.rest
-function PartyComponent:rest(text, timeMultiplier)
+function PartyComponent:rest(text, ...)
 	preRestHp = getPartyHpState()
 	preRestEp = getPartyEpState()
 
 	EventLog:pushEvent("orig_partyComponent_rest")
-	local result = orig_partyComponent_rest(self, text, timeMultiplier)
+	local result = orig_partyComponent_rest(self, text, ...)
 
 	if party.resting then
 		currentRestIsForAction = (text ~= nil)
@@ -1441,7 +1440,7 @@ end
 
 -- ACTION - Rest ended
 local orig_partyComponent_wakeUp = PartyComponent.wakeUp
-function PartyComponent:wakeUp(restInterrupted)
+function PartyComponent:wakeUp(restInterrupted, ...)
 	if party.resting and not currentRestIsForAction then
 		if restInterrupted then
 			EventLog:addLogEntry("ACTION", "Rest interrupted.", true)
@@ -1449,7 +1448,7 @@ function PartyComponent:wakeUp(restInterrupted)
 			EventLog:addLogEntry("ACTION", "Rest ended.", true)
 		end
 
-		local result = orig_partyComponent_wakeUp(self, restInterrupted)
+		local result = orig_partyComponent_wakeUp(self, restInterrupted, ...)
 
 		logPartyHpStateChanges(preRestHp, "$name healed... $change HP.")
 		logPartyEpStateChanges(preRestEp, "$name energized... $change EP.")
@@ -1462,43 +1461,43 @@ end
 
 -- ACTION - Shovel use interrupted
 local orig_diggingToolComponent_onPartyWakeUp = DiggingToolComponent.onPartyWakeUp
-function DiggingToolComponent:onPartyWakeUp(interrupted)
+function DiggingToolComponent:onPartyWakeUp(...)
 	if not self.diggingCounter or self.diggingCounter < 7 then
 		EventLog:addLogEntry("ACTION", "Dig interrupted.", true)
 	end
-	orig_diggingToolComponent_onPartyWakeUp(self, interrupted)
+	orig_diggingToolComponent_onPartyWakeUp(self, ...)
 end
 
 -- ACTION - Rope use interrupted
 local orig_ropeToolComponent_onPartyWakeUp = RopeToolComponent.onPartyWakeUp
-function RopeToolComponent:onPartyWakeUp(interrupted)
+function RopeToolComponent:onPartyWakeUp(...)
 	if not self.counter or self.counter < 7 then
 		EventLog:addLogEntry("ACTION", "Climb interrupted.", true)
 	end
-	orig_ropeToolComponent_onPartyWakeUp(self, interrupted)
+	orig_ropeToolComponent_onPartyWakeUp(self, ...)
 end
 
 -- ACTION - Used healing crystal
 local orig_crystalComponent_onClick = CrystalComponent.onClick
-function CrystalComponent:onClick()
+function CrystalComponent:onClick(...)
 	EventLog:addLogEntry("ACTION", "Healing crystal used.", true)
-	orig_crystalComponent_onClick(self)
+	orig_crystalComponent_onClick(self, ...)
 end
 
 -- ACTION - Find secret
 local orig_secretComponent_activate = SecretComponent.activate
-function SecretComponent:activate()
+function SecretComponent:activate(...)
 	EventLog:addLogEntry("ACTION", "Secret found.", true)
-	return orig_secretComponent_activate(self)
+	return orig_secretComponent_activate(self, ...)
 end
 
 -- STATS - levelup
 local orig_champion_levelUp = Champion.levelUp
-function Champion:levelUp()
+function Champion:levelUp(...)
 	isNormalSkillPointChange = true
 	EventLog:addLogEntry("STATS", self.name .. " leveled to " .. (self.level+1) .. ".")
 
-	local result = orig_champion_levelUp(self)
+	local result = orig_champion_levelUp(self, ...)
 
 	isNormalSkillPointChange = false
 
@@ -1507,31 +1506,31 @@ end
 
 -- STATS - add skill point
 local orig_champion_addSkillPoints = Champion.addSkillPoints
-function Champion:addSkillPoints(amount)
+function Champion:addSkillPoints(amount, ...)
 	if not isNormalSkillPointChange then -- Don't log levelups and slotting skill points
 		local plural_s = amount == 1 and "" or "s"
 		EventLog:addLogEntry("STATS", self.name .. " gained " .. amount .. " skill point" .. plural_s .. ".")
 	end
-	return orig_champion_addSkillPoints(self, amount)
+	return orig_champion_addSkillPoints(self, amount, ...)
 end
 
 -- Simply block skill point logs while slotting and unslotting skills
 local orig_charSheet_skillsTab = CharSheet.skillsTab
-function CharSheet:skillsTab(x, y)
+function CharSheet:skillsTab(...)
 	isNormalSkillPointChange = true
-	local result = orig_charSheet_skillsTab(self, x, y)
+	local result = orig_charSheet_skillsTab(self, ...)
 	isNormalSkillPointChange = false
 	return result
 end
 
 -- STATS - Experience from digging up chest
 local orig_diggingToolComponent_diggingFinished = DiggingToolComponent.diggingFinished
-function DiggingToolComponent:diggingFinished()
+function DiggingToolComponent:diggingFinished(...)
 	isMonitoringXp = true
 	local oldState = getPartyXpState()
 
 	EventLog:pushEvent("orig_diggingToolComponent_diggingFinished")
-	local result = orig_diggingToolComponent_diggingFinished(self)
+	local result = orig_diggingToolComponent_diggingFinished(self, ...)
 
 	logPartyXpStateChanges(oldState)
 	isMonitoringXp = false
@@ -1542,14 +1541,14 @@ end
 
 -- STATS - Experience from anything not otherwise handled
 local orig_champion_gainExp = Champion.gainExp
-function Champion:gainExp(xp)
+function Champion:gainExp(...)
 	if isMonitoringXp then
-		return orig_champion_gainExp(self, xp)
+		return orig_champion_gainExp(self, ...)
 	end
 	local oldState = getPartyXpState()
 
 	EventLog:pushEvent("orig_champion_gainExp")
-	local result = orig_champion_gainExp(self, xp)
+	local result = orig_champion_gainExp(self, ...)
 
 	logPartyXpStateChanges(oldState)
 
@@ -1559,11 +1558,11 @@ end
 
 -- STATS - skill increase
 local orig_champion_trainSkill = Champion.trainSkill
-function Champion:trainSkill(name, times, spendPoints)
+function Champion:trainSkill(name, times, ...)
 	isNormalSkillPointChange = true
-	EventLog:addLogEntry("STATS", self.name .. " gained " .. times .. " in " .. name:gsub("_", " ") .. " skill.")
+	EventLog:addLogEntry("STATS", self.name .. " gained " .. (times or 1) .. " in " .. name:gsub("_", " ") .. " skill.")
 
-	local result = orig_champion_trainSkill(self, name, times, spendPoints)
+	local result = orig_champion_trainSkill(self, name, times, ...)
 
 	isNormalSkillPointChange = false
 
@@ -1572,11 +1571,11 @@ end
 
 -- STATS - gain trait
 local orig_champion_addTrait = Champion.addTrait
-function Champion:addTrait(name)
+function Champion:addTrait(name, ...)
 	local pre_hasTrait = self:hasTrait(name)
 
 	EventLog:pushEvent("orig_champion_addTrait")
-	local result = orig_champion_addTrait(self, name)
+	local result = orig_champion_addTrait(self, name, ...)
 
 	if not pre_hasTrait and self:hasTrait(name) then
 		local trait = Skill.getTrait(name)
@@ -1593,11 +1592,11 @@ end
 
 -- STATS - general stat increases
 local orig_champion_modifyBaseStat = Champion.modifyBaseStat
-function Champion:modifyBaseStat(name, value)
+function Champion:modifyBaseStat(name, value, ...)
 	for _,v in ipairs(STATS_CHANGES_TO_LOG) do
 		if name == v then
 			EventLog:addLogEntry("STATS", self.name .. "'s " .. getStatName(name) .. " changed.  " .. (self.stats[name].current) .. " to " .. (self.stats[name].current + value) .. ".")
 		end
 	end
-	return orig_champion_modifyBaseStat(self, name, value)
+	return orig_champion_modifyBaseStat(self, name, value, ...)
 end
